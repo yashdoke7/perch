@@ -1,0 +1,16 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# demo artifacts
+demo/.captures/
+
+# secrets
+.env
+
+# os
+Thumbs.db
+.DS_Store
