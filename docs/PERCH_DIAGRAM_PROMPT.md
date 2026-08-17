@@ -5,18 +5,168 @@ diagrams other groups produced than to monochrome Mermaid. Nano Banana Pro rende
 text, which is the part most image models get wrong — so the prompt below **spells out every label
 verbatim**, because anything you leave to the model comes back as plausible-looking gibberish.
 
-**How to use it.** Paste PROMPT 1 into Gemini with image generation. Then use the follow-ups to fix
-whatever came out wrong — it is much better at editing an existing image than at getting a dense
-diagram right first time. Ask for **16:9** and the highest resolution offered.
+**How to use it.** Paste **PROMPT 0** into Gemini with image generation — it is the current
+recommendation, below. PROMPT 1 (further down) is the earlier layer-band version, kept as an
+alternative structure rather than deleted. Use the follow-ups to fix whatever comes out wrong — Gemini
+is much better at editing an existing image than at getting a dense diagram exactly right first time.
+Ask for **16:9** and the highest resolution offered.
 
-**⚠️ What went wrong the first time, and why PROMPT 1 is rewritten below.** The first version described
-four bands and told the model what to put *inside* each one, but never told it to connect anything
-*across* them. The result was four sealed boxes with no relationship to each other — a legend, not an
-architecture. **The fix is to describe it as a graph: name every node once, then give a numbered list of
-directed edges between specific nodes, and forbid enclosing borders around the bands.** Layers become
-faint background tints a node sits *on top of*, not containers that stop arrows at their walls — the
-same convention AWS/GCP/Azure reference architecture diagrams use, which is almost certainly what the
-other groups' diagrams actually were.
+**⚠️ Why PROMPT 0 replaces PROMPT 1 as the recommendation.** Stacking four architectural *tiers* as
+parallel bands groups components by where they live in the codebase — but privacy, routing, memory,
+ranking, gating and packing all fire together for a *single request*, and splitting them across two
+separate rows (the old "L2 context" / "L3 memory") hid that they are one coherent step, not two. PROMPT
+0 groups by **what happens together**, not by implementation tier: four stage-clusters, each one its
+own small wired sub-diagram with real component-to-component arrows inside it, chained left to right by
+one thick arrow per handoff. Same fifteen-plus components, same edges — regrouped around the actual
+work being done at each point in the request, which is also just a clearer story to tell out loud.
+
+---
+
+## ★★★ PROMPT 0 — RECOMMENDED: four connected stage-clusters
+
+```
+Create a professional software architecture diagram for a desktop AI application
+called PERCH. Widescreen 16:9, high resolution, suitable for a university project
+review slide.
+
+THIS IS A FOUR-STAGE PIPELINE, READ LEFT TO RIGHT. Each stage is drawn as one
+large, soft-filled, rounded rectangle "super-container" with a title header
+band at its top. Inside each super-container are several small white icon
+cards (nodes), connected to each other with visible arrows -- so each stage
+is its own small connected diagram, not a loose row of separate icons. Between
+stage 1 and 2, between 2 and 3, and between 3 and 4, draw one THICK arrow
+connecting the LAST node of one stage to the FIRST node of the next, so the
+whole thing reads as one continuous pipeline made of four visually distinct
+chapters, not four unrelated panels.
+
+STYLE
+Flat vector illustration, off-white background (#F7F8FA). Each stage
+super-container has a soft 12% opacity fill in its stage colour AND a visible
+thin 2px border in the same colour, fully enclosing its internal nodes -- this
+border matters here, unlike a plain wash, because these four containers are
+meant to read as distinct grouped chapters, each a coherent step. Inside each
+container, nodes are small white rounded cards with a 1px grey border, a line
+icon, a bold label and a small grey subtitle. Internal arrows are 2px dark
+grey with small arrowheads. The stage-to-stage handoff arrows are thicker,
+6px, in a slightly darker shade of the colour they are leaving, so they read
+as more important than the internal wiring. All text exactly as given below.
+No 3D, no watermark, no real company logos -- write "Ollama" and "NVIDIA NIM"
+as plain text only.
+
+STAGE 1 -- colour BLUE (#4D8DF0), header "1. SUMMON"
+  A small "USER" node (person icon) sits just outside/above this container,
+  with an arrow "selects text, presses a key" into the first node inside it.
+  Inside the container, in order, connected by arrows:
+    "TRIGGER" -- one card with three small icons together (keyboard, cursor-
+       select, camera), subtitle "hotkey · selection · screenshot -- any one
+       of the three summons PERCH"
+    -> "CAPTURE" -- cursor-select icon, subtitle "UI Automation, or clipboard
+       fallback; the host window's handle is saved here"
+    -> "PANEL OPENS" -- floating window icon, subtitle "a small popup appears
+       beside your work, without taking focus"
+    -> "YOUR QUESTION" -- speech-bubble icon, subtitle "typed into the panel,
+       alongside whatever was captured"
+  "YOUR QUESTION" is the exit point of Stage 1.
+
+STAGE 2 -- colour GREEN (#22A06B), header "2. UNDERSTAND WHAT YOU KNOW"
+  Make this container visibly WIDER than the other three -- it holds the most
+  components, and its size should say so at a glance. Inside, connected by
+  arrows in this order:
+    "PRIVACY DECISION" -- shield icon, subtitle "source rules, not content"
+    -> "ROUTER" -- signpost icon, subtitle "which memory classes fit this
+       question"
+    -> "MEMORY STORE" -- DATABASE CYLINDER icon, subtitle "Markdown + SQLite".
+       Directly below this node, six small coloured pill tags in a 3x2 grid:
+       "IDENTITY", "PROJECT", "ACADEMIC", "CAREER", "HEALTH", "PERSONAL",
+       with a tiny padlock glyph on "HEALTH" and "PERSONAL" only.
+    -> "RANKER" -- sort-arrows icon, subtitle "orders candidates by
+       relevance to this question"
+    -> "ADMISSION GATE" -- filter-funnel icon, THICKER border, small star
+       badge in the corner, subtitle "per-class floor + margin". From here
+       draw TWO branches: a GREEN arrow labelled "admitted" continuing right
+       to the next node, and a RED DASHED arrow labelled "dropped -- with a
+       reason" going down to a small crossed-circle icon that stays fully
+       INSIDE this container -- it must not leave Stage 2.
+    -> "BUDGET PACKER" -- stacked-layers icon, subtitle "context_window(model)
+       minus reserves for the response, system prompt and tool schemas"
+  BUDGET PACKER receives only the GREEN "admitted" branch, and is the exit
+  point of Stage 2.
+
+STAGE 3 -- colour ORANGE (#F0913A), header "3. ANSWER"
+  Inside, connected by arrows:
+    "MODEL REGISTRY" -- list icon, subtitle "context window per model"
+    -> fans out with three short arrows to three route cards stacked in a
+       tight column, all the same size: "LOCAL -- Ollama" (chip icon, "free,
+       offline, private"), "FREE TIER -- NVIDIA NIM" (cloud icon, "no card,
+       100+ models"), "YOUR OWN API KEY" (key icon, "whatever you already
+       pay for")
+    -> all three route cards connect with short double-headed arrows to
+       "TOOL LOOP" (gear icon, subtitle "web / files / docs / python /
+       memory -- can call MEMORY STORE again mid-answer")
+  Draw one thin, light grey, DASHED arrow from TOOL LOOP back to the MEMORY
+  STORE node inside Stage 2, labelled small "can search memory again" -- this
+  is the only arrow allowed to reach backward into an earlier stage, and it
+  must look visibly different from the main flow so it does not compete with
+  it.
+  "ANSWER" -- small text-bubble icon, is the exit point of Stage 3.
+
+STAGE 4 -- colour BLUE again (#4D8DF0, same as Stage 1 -- this is the surface
+layer closing the loop), header "4. DELIVER"
+  Inside:
+    "EDIT IN PLACE" -- pencil-on-document icon, subtitle "Replace / Insert
+       after / Copy"
+  Draw one long dashed arrow curving from EDIT IN PLACE back to the "PANEL
+  OPENS" node in Stage 1, labelled "pastes back into the app you were
+  already in" -- route it ABOVE the whole diagram so it does not cross the
+  main left-to-right flow.
+
+CROSS-CUTTING, drawn separately from the main flow, thin grey dashed, no
+number badge, small label "private forces local": one arrow from PRIVACY
+DECISION in Stage 2 down to MODEL REGISTRY in Stage 3.
+
+BOTTOM ANNOTATION
+One single small rounded grey card, fully inside the image with margin on
+all sides, not rotated, horizontal text, containing all three lines:
+  "Stage 2 is the contribution"
+  "Stage 1 is built and running"
+  "Stage 3 is what makes it free"
+
+TITLE, top centre, bold: "PERCH — System Architecture"
+Subtitle beneath, smaller grey text: "four stages, one continuous request"
+```
+
+---
+
+## PROMPT 0b — if Stage 2 comes out cramped
+
+```
+Same diagram, same nodes and edges, but Stage 2 is too cramped. Widen Stage 2
+to roughly 40% of the total image width, arrange its six internal nodes
+(Privacy Decision, Router, Memory Store, Ranker, Admission Gate, Budget
+Packer) in a single flowing S-curve rather than a straight line so they fit
+the extra width without leaving dead space, and shrink Stages 1, 3 and 4
+proportionally so the total layout still fits 16:9. Keep every label, colour,
+icon and edge exactly as before.
+```
+
+---
+
+# Alternative structure — four architectural layers instead of four stages
+
+Everything below is the earlier approach: still a connected graph (not sealed boxes), but grouped by
+**tier of the codebase** (surface / context / memory / execution) rather than by **stage of a request**.
+Keep it around for a slide that specifically needs to show "here is Layer 3, the memory system" in
+isolation — the team-split slide (§9.3 of the architecture) maps one-to-one onto these four layers, which
+PROMPT 0's stages do not. For the main system-architecture slide, PROMPT 0 above is the better read.
+
+**⚠️ What went wrong the first time this structure was tried, and why PROMPT 1 is rewritten below.** The
+first version described four bands and told the model what to put *inside* each one, but never told it
+to connect anything *across* them. The result was four sealed boxes with no relationship to each other —
+a legend, not an architecture. **The fix is to describe it as a graph: name every node once, then give a
+numbered list of directed edges between specific nodes, and forbid enclosing borders around the bands.**
+Layers become faint background tints a node sits *on top of*, not containers that stop arrows at their
+walls — the same convention AWS/GCP/Azure reference architecture diagrams use, which is almost certainly
+what the other groups' diagrams actually were.
 
 ---
 
