@@ -38,7 +38,13 @@ CLASSES: dict[str, MemoryClass] = {
         name="identity",
         holds="who you are, how you want answers written, standing instructions",
         # Low floor: identity is broad by nature and should be admitted easily.
-        floor=0.18,
+        # Calibrated against nomic-embed-text + this class's own 1.25x prior:
+        # measured 0.125 (ranked score) for a genuinely unrelated query against
+        # 0.230 for a real voice/style match (a "rewrite this" transform
+        # request) -- 0.20 sits between them with margin on both sides. See
+        # embed.relevance() for why the floor is interpreted post-calibration
+        # rather than as a raw cosine number.
+        floor=0.20,
         private=False,
         prior=1.25,
         cap=40,

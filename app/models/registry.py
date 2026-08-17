@@ -52,7 +52,13 @@ def available() -> list[Model]:
             key="local", provider="ollama", model_id=config.LOCAL_MODEL,
             # Conservative: a 3B served by Ollama defaults well below its
             # advertised maximum, and overstating it truncates answers.
-            context_window=8192, local=True, tools=False,
+            context_window=8192, local=True,
+            # Ollama's /api/chat accepts an OpenAI-shaped "tools" list for
+            # models that support function calling (the Qwen and Llama
+            # families do). Declaring it here is what makes the tool loop
+            # -- and therefore memory_search, web_search, file tools -- run
+            # for a purely local, ₹0 setup, not only when a cloud key is set.
+            tools=True,
         ))
     if config.API_BASE and config.API_KEY:
         models.append(Model(

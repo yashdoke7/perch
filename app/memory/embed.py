@@ -128,3 +128,33 @@ def cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
     return max(0.0, min(1.0, sum(x * y for x, y in zip(a, b))))
+
+
+# General-purpose sentence embedders do NOT sit near zero for unrelated text.
+# Measured in this repo: nomic-embed-text puts a completely off-topic pair
+# (a question about medication vs. a note about someone's writing style) at
+# cosine 0.35-0.41. The hashed bag-of-words fallback sits closer to 0.10-0.15
+# for the same kind of pair, because it only fires on literal shared
+# vocabulary. A class floor tuned against one baseline silently means a
+# different thing under the other -- so RELEVANCE below rescales raw cosine
+# against its backend's own baseline before it is ever compared to a floor.
+# This is a real, named limitation of naive cosine thresholds (the reason
+# MemGate and CRAG both use a learned or corrective step rather than a bare
+# threshold); rescaling against a measured baseline is the deliberately
+# simple version of that calibration, not a hidden workaround for it.
+BASELINE = {
+    "hashed": 0.12,
+    "ollama": 0.38,
+    "api": 0.15,
+}
+
+
+def relevance(raw: float, kind: str | None = None) -> float:
+    """Cosine similarity, rescaled against its backend's unrelated-text
+    baseline so a class floor means the same thing regardless of which
+    embedding backend is live. Used for ranking/admission; NOT used for
+    near-duplicate detection in store.py, which wants raw cosine."""
+    base = BASELINE.get(kind or backend(), 0.15)
+    if raw <= base:
+        return 0.0
+    return min(1.0, (raw - base) / (1.0 - base))

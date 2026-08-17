@@ -9,77 +9,125 @@ verbatim**, because anything you leave to the model comes back as plausible-look
 whatever came out wrong — it is much better at editing an existing image than at getting a dense
 diagram right first time. Ask for **16:9** and the highest resolution offered.
 
+**⚠️ What went wrong the first time, and why PROMPT 1 is rewritten below.** The first version described
+four bands and told the model what to put *inside* each one, but never told it to connect anything
+*across* them. The result was four sealed boxes with no relationship to each other — a legend, not an
+architecture. **The fix is to describe it as a graph: name every node once, then give a numbered list of
+directed edges between specific nodes, and forbid enclosing borders around the bands.** Layers become
+faint background tints a node sits *on top of*, not containers that stop arrows at their walls — the
+same convention AWS/GCP/Azure reference architecture diagrams use, which is almost certainly what the
+other groups' diagrams actually were.
+
 ---
 
-## ★ PROMPT 1 — the main system architecture
+## ★ PROMPT 1 — the main system architecture (component graph, not a legend)
 
 ```
 Create a professional software architecture diagram for a desktop AI application
 called PERCH. Widescreen 16:9, high resolution, suitable for a university project
 review slide.
 
+THIS MUST BE A CONNECTED GRAPH, NOT A SET OF GROUPED BOXES. Every node listed below
+is drawn ONCE as a small icon-topped card. Every edge listed below is drawn as a
+visible arrow going from one specific named node to another specific named node,
+often crossing from one colour zone into a different one. Do not draw any solid
+rectangle that encloses a whole group of nodes and stops the arrows at its border
+-- that produces four disconnected panels, which is the WRONG result. Instead use
+the AWS/GCP/Azure reference-architecture convention: four wide, softly rounded,
+low-opacity colour washes laid on the background as horizontal LANES (no visible
+border, ~15% opacity fill only, so they read as tinted zones a node sits on top
+of), with nodes and arrows drawn on top and free to cross between lanes.
+
 STYLE
-Modern technical architecture diagram, flat vector illustration, clean and
-uncluttered. Soft off-white background (#F7F8FA). Rounded rectangles with subtle
-drop shadows. Crisp thin connector arrows in dark grey. All text in a clean sans
-serif, dark charcoal (#1F2430), and every label must be spelled EXACTLY as written
-below. Generous white space. No photorealism, no 3D, no gradients on text, no
-watermark, no fake logos of real companies.
+Flat vector illustration, clean and uncluttered, soft off-white background
+(#F7F8FA). Each node is a small white rounded card with a thin 1.5px border in its
+lane's colour, a simple line icon at the top, a bold label, and a smaller grey
+subtitle line. Arrows are crisp, 2px, dark grey (#4A4E58), with a small filled
+arrowhead, each labelled along its length with a short lowercase caption in a
+tiny grey font. All text must be spelled EXACTLY as given below. No 3D, no
+watermark, no photorealism, no fake logos of real companies -- write "Ollama" and
+"NVIDIA NIM" as plain text only.
 
-LAYOUT
-Four horizontal bands stacked top to bottom, each band a wide rounded container
-with a coloured left edge strip and its name written vertically or in the top-left
-corner. A vertical flow arrow runs down the left side of all four bands.
+FOUR LANES, top to bottom, each a translucent colour wash with a small coloured
+tab on the far left edge naming it:
+  LANE 1  BLUE wash (#4D8DF0 at 15%)    tab text "L1 SURFACE"
+  LANE 2  PURPLE wash (#8B5CF6 at 15%)  tab text "L2 CONTEXT"
+  LANE 3  GREEN wash (#22A06B at 15%)   tab text "L3 MEMORY"
+  LANE 4  ORANGE wash (#F0913A at 15%)  tab text "L4 EXECUTION"
 
-BAND 1 — top — colour BLUE (#4D8DF0), title "LAYER 1 — SURFACE"
-Inside, four boxes in a row, each with a simple line icon above its label:
-  - keyboard icon, label "TRIGGER" and small subtext "hotkey / selection / screenshot"
-  - cursor-with-text-selection icon, label "CAPTURE" and subtext "UI Automation, clipboard fallback"
-  - floating side-panel icon, label "PANEL" and subtext "beside your work, never over it"
-  - document-with-pencil icon, label "EDIT IN PLACE" and subtext "Replace / Insert / Copy"
+NODES (name, lane, icon, subtitle) -- draw every one of these exactly once:
 
-BAND 2 — colour PURPLE (#8B5CF6), title "LAYER 2 — CONTEXT"
-Inside, three boxes in a row:
-  - shield icon, label "PRIVACY" and subtext "source rules, not content"
-  - signpost icon, label "ROUTER" and subtext "which memory classes are eligible"
-  - stacked-layers icon, label "BUDGET PACKER" and subtext "context_window(model) - reserves"
+  N1  "USER"                lane 0 (no wash, plain white, top-left corner)
+                             person icon, subtitle "selects text in any app"
+  N2  "HOTKEY"               LANE 1, keyboard icon, subtitle "Ctrl+Shift+Space"
+  N3  "CAPTURE"               LANE 1, cursor-select icon, subtitle "UI Automation / clipboard"
+  N4  "HOST WINDOW"          LANE 1, small window-frame icon, subtitle "HWND saved here"
+  N5  "PANEL"                LANE 1, floating-card icon, subtitle "appears beside your work"
+  N6  "PRIVACY DECISION"     LANE 2, shield icon, subtitle "source rules, not content"
+  N7  "ROUTER"               LANE 2, signpost icon, subtitle "which classes are eligible"
+  N8  "MEMORY STORE"         LANE 3, DATABASE CYLINDER icon, subtitle "Markdown + SQLite"
+  N9  "RANKER"               LANE 3, sort-arrows icon, subtitle "orders candidates"
+  N10 "ADMISSION GATE"       LANE 3, filter-funnel icon, thicker border, small star
+                             badge in the corner, subtitle "per-class floor + margin"
+  N11 "BUDGET PACKER"        LANE 2, stacked-layers icon, subtitle "context_window(model) minus reserves"
+  N12 "MODEL REGISTRY"       LANE 4, list icon, subtitle "context window per model"
+  N13 "LOCAL — Ollama"       LANE 4, chip icon, subtitle "free, offline, private"
+  N14 "TOOL LOOP"            LANE 4, gear icon, subtitle "web / files / docs / python / memory"
+  N15 "EDIT IN PLACE"        LANE 1, pencil-on-document icon, subtitle "Replace / Insert / Copy"
 
-BAND 3 — colour GREEN (#22A06B), title "LAYER 3 — MEMORY"
-On the left of this band, draw a CYLINDER DATABASE ICON in green, labelled
-"MARKDOWN + SQLITE" with small subtext "the files are the truth".
-To its right, six small coloured pill-shaped tags in two rows of three, reading
-exactly: "IDENTITY", "PROJECT", "ACADEMIC", "CAREER", "HEALTH", "PERSONAL".
-Draw a small orange padlock icon on the "HEALTH" and "PERSONAL" pills only.
-To the right of the pills, two boxes connected by a short arrow:
-  - label "RANKER" with subtext "orders candidates"
-  - label "ADMISSION GATE" with subtext "per-class floor + margin"
-Draw the ADMISSION GATE box with a slightly thicker border and a small star or
-badge in its corner to mark it as the key component.
-From the ADMISSION GATE, draw TWO outgoing arrows:
-  a green arrow labelled "ADMITTED" going right,
-  and a red dashed arrow labelled "DROPPED — with a reason" curving away downward
-  into a small crossed-circle symbol.
+  Below N8, draw six small coloured pill tags in a 3x2 grid, touching the bottom
+  edge of the MEMORY STORE card: "IDENTITY", "PROJECT", "ACADEMIC", "CAREER",
+  "HEALTH", "PERSONAL". Put a tiny padlock glyph on "HEALTH" and "PERSONAL" only.
 
-BAND 4 — bottom — colour ORANGE (#F0913A), title "LAYER 4 — EXECUTION"
-Inside, on the left a box labelled "MODEL REGISTRY".
-To its right, three parallel route boxes stacked vertically:
-  - a small computer-chip icon, label "LOCAL — Ollama", subtext "free, offline, private"
-  - a small cloud icon, label "FREE TIER — NVIDIA NIM"
-  - a small key icon, label "YOUR OWN API KEY"
-To the right of those, a box labelled "TOOL LOOP" with six tiny icons inside and
-the caption "web · files · documents · OCR · python · memory".
+EDGES -- draw every one of these as a numbered arrow, using the number as a small
+circled label at the midpoint of the arrow:
 
-SIDE ANNOTATIONS
-On the far right of the image, a narrow vertical callout panel in light grey
-containing three short lines of text exactly:
+  1.  N1 -> N2          "press"
+  2.  N2 -> N3           "fires"
+  3.  N3 -> N4           "snapshot HWND"          (short dashed arrow)
+  4.  N3 -> N5           "selection + provenance"
+  5.  N5 -> N6           "question"
+  6.  N6 -> N7           "cleared"
+  7.  N7 -> N8           "eligible classes"
+  8.  N8 -> N9           "candidates"
+  9.  N9 -> N10          "ranked"
+  10. N10 -> N11         GREEN arrow, "admitted"
+  11. N10 -> a small red crossed-circle icon floating just below N10, RED DASHED
+      arrow, "dropped — with a reason"
+  12. N11 -> N12         "assembled prompt"
+  13. N12 -> N13         "route"
+  14. N13 <-> N14        double-headed arrow, "tool call / result"
+  15. N14 -> N15         "answer"
+  16. N15 -> N4           "paste back via saved HWND"      (curves back left,
+      long dashed arrow, crossing back into LANE 1 -- this is the loop that closes
+      the diagram, draw it clearly, do not let it overlap N1-N3)
+  17. N6 -> N12          THIN DASHED arrow crossing three lanes downward, small
+      label "private forces local" -- this shows privacy constraining execution
+      directly, independent of the main numbered flow, draw it visually distinct
+      (thin, grey, no number badge) from edges 1-16 so it doesn't look like part
+      of the main sequence
+
+SIDE ANNOTATION
+On the far right, outside the lanes, a narrow vertical callout in light grey text:
   "L2 + L3 are the contribution"
   "L1 is built and running"
   "L4 is what makes it free"
 
-TITLE
-At the very top, centred, in bold: "PERCH — System Architecture"
-Directly under it in smaller grey text: "A personal AI agent that lives where your
-desktop lives"
+TITLE, top centre, bold: "PERCH — System Architecture"
+Subtitle beneath it, smaller grey text: "one request, from keystroke to edit,
+crossing all four layers"
+```
+
+---
+
+## PROMPT 1b — if the graph still comes out too tangled
+
+```
+Same diagram, same nodes and edges as before, but simplify the ROUTING of the
+arrows: use only horizontal and vertical segments with rounded corners (no
+diagonal lines), route each arrow along the shortest orthogonal path, and
+increase the spacing between nodes in the same lane by 25% so no two arrows
+overlap. Keep every node, every label and every edge number exactly as before.
 ```
 
 ---
@@ -171,6 +219,7 @@ Paste these one at a time after the first image comes back.
 | Icons are inconsistent | *"Redraw all icons in a single consistent style: thin two-pixel line icons, no fills, same visual weight."* |
 | Nothing stands out | *"Emphasise the ADMISSION GATE box: thicker border, a soft coloured glow, and a small star badge. Everything else stays as it is."* |
 | Wrong shape for a slide | *"Recompose to a strict 16:9 with a 5% margin on all sides and nothing cropped."* |
+| **Came back as sealed boxes again, no cross-lane arrows** | *"Keep the same nodes, but remove the solid rectangle border around each lane entirely — replace it with only a faint colour wash and no outline — and make sure every numbered arrow from the edge list is visibly drawn crossing from one lane into the next. The lanes must not look like separate containers."* |
 
 ---
 
@@ -182,3 +231,4 @@ Paste these one at a time after the first image comes back.
 - [ ] **The dropped/abstain path is visible.** It is the contribution; a diagram that only shows the happy path shows a normal RAG pipeline.
 - [ ] **No real company logos.** Write "Ollama" and "NVIDIA NIM" as text, never as marks.
 - [ ] **It matches the deck.** Same four layers, same order, same colours as slide 13.
+- [ ] **Count the arrows, not the boxes.** There should be visible connectors crossing between colour zones — surface into context, context into memory, memory back into context, execution back into surface (edge 16, the paste-back loop). If you can cover any single lane with your hand and the diagram still makes sense as "four separate lists," the connections did not render — ask for the PROMPT 1b orthogonal-routing follow-up, or the fix in the table above.

@@ -151,7 +151,12 @@ class Pipeline:
             context_window=model.context_window,
             history=req.history,
             abstained=result.abstained,
-            tools_declared=model.tools and allow_network,
+            # Non-network tools (memory_search, file_read, run_python) are
+            # still declared in private mode -- only web_search/web_fetch
+            # drop out, see tools/registry.py:schemas(). So the budget must
+            # reserve room for tool schemas whenever the model supports tool
+            # calling at all, not only when the network is allowed.
+            tools_declared=model.tools,
         )
         trace.budget = packed.summary()
         for s in packed.evicted:

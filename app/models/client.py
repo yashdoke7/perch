@@ -61,8 +61,15 @@ def complete(model: Model, system: str, prompt: str) -> str:
 
 def complete_with_tools(model: Model, system: str, prompt: str,
                         allow_network: bool, log: list[str]) -> str:
-    """The agent loop. Only the cloud path advertises tool calling today."""
-    if model.provider != "openai_compatible" or not model.tools:
+    """The agent loop: model -> tool call -> result -> model, until it stops.
+
+    Both routes get the loop, not just the cloud one -- a student running
+    Ollama with nothing else configured should still get memory_search,
+    file tools and (network permitting) web_search, not a single-shot
+    completion with no access to the tool surface described in the
+    architecture.
+    """
+    if not model.tools:
         return complete(model, system, prompt)
 
     schemas = toolreg.schemas(allow_network=allow_network)
@@ -71,6 +78,15 @@ def complete_with_tools(model: Model, system: str, prompt: str,
         {"role": "user", "content": prompt},
     ]
 
+    if model.provider == "openai_compatible":
+        return _openai_tool_loop(model, messages, schemas, allow_network, log)
+    if model.provider == "ollama":
+        return _ollama_tool_loop(model, messages, schemas, allow_network, log)
+    return complete(model, system, prompt)
+
+
+def _openai_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
+                      allow_network: bool, log: list[str]) -> str:
     for _ in range(MAX_TOOL_STEPS):
         try:
             out = _post(f"{config.API_BASE.rstrip('/')}/chat/completions", {
@@ -101,6 +117,48 @@ def complete_with_tools(model: Model, system: str, prompt: str,
                 "tool_call_id": call["id"],
                 "content": result[:4000],
             })
+
+    return "(tool loop did not converge)"
+
+
+def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
+                      allow_network: bool, log: list[str]) -> str:
+    """Same shape as the OpenAI loop, over /api/chat.
+
+    Two differences from the OpenAI path: Ollama has no tool_choice knob,
+    and its tool_calls arrive with arguments already as a dict rather than
+    a JSON string -- handled below rather than assumed.
+    """
+    for _ in range(MAX_TOOL_STEPS):
+        try:
+            out = _post(f"{config.OLLAMA_URL}/api/chat", {
+                "model": model.model_id,
+                "messages": messages,
+                "tools": schemas,
+                "stream": False,
+            }, timeout=120)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return f"(local model unreachable: {exc})"
+
+        msg = out.get("message") or {}
+        calls = msg.get("tool_calls") or []
+        if not calls:
+            return (msg.get("content") or "").strip()
+
+        messages.append({"role": "assistant", "content": msg.get("content") or "",
+                         "tool_calls": calls})
+        for call in calls:
+            fn = call.get("function", {})
+            name = fn.get("name", "")
+            args = fn.get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except json.JSONDecodeError:
+                    args = {}
+            result = toolreg.dispatch(name, args, allow_network=allow_network)
+            log.append(f"{name}({', '.join(f'{k}={v!r}' for k, v in args.items())[:80]})")
+            messages.append({"role": "tool", "content": result[:4000]})
 
     return "(tool loop did not converge)"
 

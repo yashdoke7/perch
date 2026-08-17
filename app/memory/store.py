@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 
 from .. import config
@@ -44,9 +45,19 @@ class MemoryStore:
         self.db_path = db or config.INDEX_DB
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.db_path)
-        self.db.executescript(SCHEMA)
-        self.db.commit()
+        # The panel runs the pipeline on a worker thread so the UI stays
+        # responsive (panel.py's _ask -> threading.Thread), which means this
+        # connection is used from a different thread than the one that
+        # created it. check_same_thread=False lifts sqlite3's own guard;
+        # the RLock below is what actually makes that safe, since sqlite3
+        # connections still are not safe for concurrent use across threads.
+        # RLock (not Lock) because methods call each other -- add() calls
+        # count() and _write() while already holding it.
+        self.db = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._lock = threading.RLock()
+        with self._lock:
+            self.db.executescript(SCHEMA)
+            self.db.commit()
 
     # ------------------------------------------------------------------ write
 
@@ -59,29 +70,31 @@ class MemoryStore:
         """
         vector = embed.embed(item.indexed_text)
 
-        if allow_merge:
-            twin = self._nearest_in_class(item.cls, vector)
-            if twin and twin[1] >= DUPLICATE_AT:
-                existing = self.get(twin[0])
-                if existing:
-                    existing.body = item.body
-                    existing.tags = sorted(set(existing.tags) | set(item.tags))
-                    existing.entities = sorted(set(existing.entities) | set(item.entities))
-                    existing.updated = item.updated
-                    self._write(existing, embed.embed(existing.indexed_text))
-                    return existing, "merged"
+        with self._lock:
+            if allow_merge:
+                twin = self._nearest_in_class(item.cls, vector)
+                if twin and twin[1] >= DUPLICATE_AT:
+                    existing = self.get(twin[0])
+                    if existing:
+                        existing.body = item.body
+                        existing.tags = sorted(set(existing.tags) | set(item.tags))
+                        existing.entities = sorted(set(existing.entities) | set(item.entities))
+                        existing.updated = item.updated
+                        self._write(existing, embed.embed(existing.indexed_text))
+                        return existing, "merged"
 
-        cls = classes.get(item.cls)
-        if cls and self.count(item.cls) >= cls.cap:
-            self._evict_oldest(item.cls)
+            cls = classes.get(item.cls)
+            if cls and self.count(item.cls) >= cls.cap:
+                self._evict_oldest(item.cls)
 
-        if cls and cls.private:
-            item.sensitivity = "private"
+            if cls and cls.private:
+                item.sensitivity = "private"
 
-        self._write(item, vector)
-        return item, "created"
+            self._write(item, vector)
+            return item, "created"
 
     def _write(self, item: MemoryItem, vector: list[float]) -> None:
+        """Caller holds the lock. Not called directly from outside this class."""
         path = item.path_in(self.root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(item.to_markdown(), encoding="utf-8")
@@ -96,19 +109,22 @@ class MemoryStore:
         self.db.commit()
 
     def forget(self, item_id: str) -> bool:
-        row = self.db.execute("SELECT path FROM items WHERE id=?", (item_id,)).fetchone()
-        if not row:
-            return False
-        Path(row[0]).unlink(missing_ok=True)
-        self.db.execute("DELETE FROM items WHERE id=?", (item_id,))
-        self.db.commit()
-        return True
+        with self._lock:
+            row = self.db.execute("SELECT path FROM items WHERE id=?", (item_id,)).fetchone()
+            if not row:
+                return False
+            Path(row[0]).unlink(missing_ok=True)
+            self.db.execute("DELETE FROM items WHERE id=?", (item_id,))
+            self.db.commit()
+            return True
 
     def touch(self, item_id: str) -> None:
-        self.db.execute("UPDATE items SET uses = uses + 1 WHERE id=?", (item_id,))
-        self.db.commit()
+        with self._lock:
+            self.db.execute("UPDATE items SET uses = uses + 1 WHERE id=?", (item_id,))
+            self.db.commit()
 
     def _evict_oldest(self, cls_name: str) -> None:
+        """Caller holds the lock."""
         row = self.db.execute(
             "SELECT id FROM items WHERE class=? ORDER BY uses ASC, updated ASC LIMIT 1",
             (cls_name,),
@@ -119,7 +135,8 @@ class MemoryStore:
     # ------------------------------------------------------------------- read
 
     def get(self, item_id: str) -> MemoryItem | None:
-        row = self.db.execute("SELECT path FROM items WHERE id=?", (item_id,)).fetchone()
+        with self._lock:
+            row = self.db.execute("SELECT path FROM items WHERE id=?", (item_id,)).fetchone()
         if not row:
             return None
         p = Path(row[0])
@@ -128,13 +145,15 @@ class MemoryStore:
         return MemoryItem.from_markdown(p.read_text(encoding="utf-8"))
 
     def count(self, cls_name: str | None = None) -> int:
-        if cls_name:
-            q = "SELECT COUNT(*) FROM items WHERE class=?"
-            return self.db.execute(q, (cls_name,)).fetchone()[0]
-        return self.db.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+        with self._lock:
+            if cls_name:
+                q = "SELECT COUNT(*) FROM items WHERE class=?"
+                return self.db.execute(q, (cls_name,)).fetchone()[0]
+            return self.db.execute("SELECT COUNT(*) FROM items").fetchone()[0]
 
     def counts(self) -> dict[str, int]:
-        rows = self.db.execute("SELECT class, COUNT(*) FROM items GROUP BY class").fetchall()
+        with self._lock:
+            rows = self.db.execute("SELECT class, COUNT(*) FROM items GROUP BY class").fetchall()
         return {c: n for c, n in rows}
 
     def candidates(self, eligible: list[str], vector: list[float], per_class: int):
@@ -146,12 +165,15 @@ class MemoryStore:
         """
         out: list[tuple[MemoryItem, float]] = []
         for cls_name in eligible:
-            rows = self.db.execute(
-                "SELECT id, vector, path FROM items WHERE class=?", (cls_name,)
-            ).fetchall()
+            with self._lock:
+                rows = self.db.execute(
+                    "SELECT id, vector, path FROM items WHERE class=?", (cls_name,)
+                ).fetchall()
             scored = []
             for item_id, vec_json, path in rows:
-                sim = embed.cosine(vector, json.loads(vec_json))
+                # Calibrated relevance, not raw cosine -- see embed.relevance.
+                # This is the score the ranker and admission gate see.
+                sim = embed.relevance(embed.cosine(vector, json.loads(vec_json)))
                 scored.append((sim, item_id, path))
             scored.sort(reverse=True)
             for sim, item_id, path in scored[:per_class]:
@@ -164,6 +186,7 @@ class MemoryStore:
         return out
 
     def _nearest_in_class(self, cls_name: str, vector: list[float]) -> tuple[str, float] | None:
+        """Caller holds the lock."""
         rows = self.db.execute(
             "SELECT id, vector FROM items WHERE class=?", (cls_name,)
         ).fetchall()
@@ -178,12 +201,13 @@ class MemoryStore:
 
     def rebuild(self) -> int:
         """Reconstruct the index from the files. The files are the truth."""
-        self.db.execute("DELETE FROM items")
-        self.db.commit()
-        n = 0
-        for path in sorted(self.root.rglob("*.md")):
-            item = MemoryItem.from_markdown(path.read_text(encoding="utf-8"))
-            if item:
-                self._write(item, embed.embed(item.indexed_text))
-                n += 1
-        return n
+        with self._lock:
+            self.db.execute("DELETE FROM items")
+            self.db.commit()
+            n = 0
+            for path in sorted(self.root.rglob("*.md")):
+                item = MemoryItem.from_markdown(path.read_text(encoding="utf-8"))
+                if item:
+                    self._write(item, embed.embed(item.indexed_text))
+                    n += 1
+            return n
