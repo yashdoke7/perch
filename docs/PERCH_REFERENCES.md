@@ -431,16 +431,36 @@ as it happens so knowledge persists across team changes.
 > for you across the OS**. PERCH **carries your context to wherever you are working.** Automation is
 > explicitly v2, and naming it as v2 is what stops the scope-sprawl objection.
 
-## 6.5 🟢 MINOR — the local-first tool category
+## 6.5 🟠 the local-first tool category — **be careful how this is framed**
 
-| Tool | Local? | OS-integrated? |
-|---|---|---|
-| **Jan.ai** — 5.3M downloads | ✅ | ❌ an app window you open |
-| AnythingLLM · Khoj · PyGPT · Chatbox | ✅ | ❌ |
-| Open Cowork · LIYA Neural OS · PyWinAssistant | ✅ | partial |
+⚠️ **An earlier version of this table scored these tools on "OS-integrated?" and gave them all ❌.
+That was misleading and a reviewer would say so.** They *are* desktop applications running locally on
+your OS. Reducing the difference to one dismissive column both overstates our advantage and hides
+where they are genuinely better than the closed products.
 
-**Every one is a destination.** You leave what you are doing and go to it. **That is the behaviour PERCH
-exists to remove.**
+| Tool | Runs locally | Model choice | Open | **Comes to you** | **Typed memory you author** | **Declared private routing** |
+|---|---|---|---|---|---|---|
+| **Jan.ai** — 5.3M downloads | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| AnythingLLM · Khoj · PyGPT · Chatbox | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Open Cowork · LIYA Neural OS · PyWinAssistant | ✅ | ✅ | ✅ | partial | ❌ | ❌ |
+
+**Say the good part out loud.** On local execution, model choice and openness these tools are *better
+than Highlight and better than Microsoft's platform*. They are the honest comparison, and conceding
+that costs us nothing.
+
+**The three differences that are actually ours:**
+
+1. **They are destinations.** You leave your PDF or your IDE and go to their window. PERCH is summoned
+   into the application you are already in, and writes back into it.
+2. **No typed personal memory.** They store chat threads locally — real files, genuinely portable —
+   but there is no authored Identity/Project/Academic structure, and nothing imported from the
+   assistants you already pay for.
+3. **No routing policy.** Local-only *is* private, but it is not a *policy*: there is no per-request
+   toggle, no source rule, no class-driven forcing. The question "may this particular request leave the
+   machine?" is never asked, because the answer is fixed.
+
+> **The honest one-line version:** *"the local open-source tools get the model layer right and the
+> context layer isn't there at all — they're a good chat client, not a personal agent."*
 
 ## 6.6 🟢 MINOR — the Mac-only wall
 

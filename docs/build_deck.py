@@ -278,15 +278,20 @@ S("Existing Work - Our Real Competition", [
      "March 2026."),
     ("Microsoft Windows AI Platform", " - the same architecture from the OS vendor, but unshipped, "
      "Enterprise/Pro-gated, closed to third parties, and locked to their models."),
-    ("Raycast AI, Apple Intelligence, Dottie, BoltAI", " - the entire \"best AI assistant\" review "
-     "category is a Mac category. None of these run on Windows."),
-    ("Jan.ai (5.3M downloads), AnythingLLM, Khoj, PyGPT, Chatbox", " - right philosophy, wrong shape. "
-     "All local-capable and open, and every one is an application window you open."),
-    ("The pattern:", " tools that are OS-integrated are closed, cloud-only or hardware-gated. Tools "
-     "that are local and open are destinations you have to visit."),
-], size=10.5)
+    ("Raycast AI, Apple Intelligence, Dottie, BoltAI", " - the whole \"best AI assistant\" review "
+     "category is a Mac category. None run on Windows."),
+    ("Jan.ai (5.3M downloads), AnythingLLM, Khoj, PyGPT, Chatbox", " - the honest comparison, and "
+     "better than the closed products on the axes they cover: genuinely local, genuinely open, real "
+     "model choice. We are not claiming to beat them on any of that."),
+    ("What they do not have is the context layer.", " They are destinations - you leave your PDF or "
+     "IDE and go to their window. They store chat threads, not typed personal memory you author and "
+     "import. And local-only is private, but it is not a policy: nothing ever asks whether this "
+     "particular request may leave the machine."),
+    ("The pattern:", " the tools that come to you are closed or vendor-locked; the tools that are open "
+     "and local are windows you have to go to. Neither carries your context between them."),
+], size=9.0)
 
-S("The Positioning Table - The Empty Row", [], kind="table_position")
+S("The Positioning Table - Where We Actually Differ", [], kind="table_position")
 S("Layer 1 - Three Triggers, Two Capture Paths", [
     ("T1 - Global hotkey.", " Win32 RegisterHotKey gives a system-wide shortcut that fires regardless "
      "of which application has focus. Rust: tauri-plugin-global-shortcut, a first-party Tauri v2 plugin."),
@@ -669,24 +674,31 @@ ARCH_NOTE = [
 
 # ---------------------------------------------------------------------- tables
 
+# Columns are the capabilities that map to our contributions, NOT a list picked
+# so we sweep. Earlier drafts used Windows / no-special-hardware / individual-
+# user / open-source, which PERCH won by construction and which said nothing --
+# and which unfairly reduced Jan.ai's difference to "not selection-triggered"
+# when the real gaps are memory and routing. The last column is one we lose.
 POSITION_ROWS = [
-    ["", "Windows", "No special\nhardware", "Local\noption", "Cloud\nchoice",
-     "Selection\ntriggered", "Individual\nuser", "Open\nsource"],
-    ["Highlight AI", "Y", "Y", "N", "N", "Y", "N  teams", "N"],
-    ["Windows AI Platform", "Y", "Y", "Y", "N", "Y", "N  Pro", "N"],
-    ["Raycast / Apple", "N", "-", "partial", "partial", "Y", "Y", "N"],
-    ["Jan.ai / PyGPT / Khoj", "Y", "Y", "Y", "Y", "N", "Y", "Y"],
-    ["PERCH", "Y", "Y", "Y", "Y", "Y", "Y", "Y"],
+    ["", "Works inside\nother apps", "Memory\nyou own", "Imports your\nAI history",
+     "Local + cloud\nchoice", "Declared\nprivate routing", "Open\nsource", "Shipping\ntoday"],
+    ["Highlight AI", "Y", "N", "N", "N", "N", "N", "Y"],
+    ["Windows AI Platform", "Y", "N", "N", "partial", "partial", "N", "not yet"],
+    ["Raycast / Apple  (Mac)", "Y", "N", "N", "partial", "N", "N", "Y"],
+    ["Jan.ai / PyGPT / Khoj", "N", "partial", "N", "Y", "N", "Y", "Y"],
+    ["PERCH", "Y", "Y", "Y", "Y", "Y", "Y", "N  prototype"],
 ]
 
 POSITION_CAPTION = [
-    ("Read the columns, not the rows.", " Every competitor fails at least one column that matters to "
-     "an individual user on an ordinary Windows laptop."),
-    ("Highlight is closed and cloud-only and has moved to teams. Microsoft's platform is unshipped, "
-     "Enterprise/Pro-gated and closed to third parties.", " The Mac tools do not run here, and the "
-     "local open tools are all windows you have to go to."),
-    ("The bottom row is the project.", " Nothing in it is individually novel - the combination is the "
-     "one nobody is shipping."),
+    ("These are the columns that matter, including one we lose.", " PERCH is a prototype and the "
+     "others ship today - a table where we won every column would not be worth showing."),
+    ("Jan.ai, PyGPT and Khoj are the honest comparison.", " They are local, open, and give you real "
+     "model choice - genuinely better than the closed products on those axes. What they do not do is "
+     "come to you: they are applications you open, so the context stops at their window."),
+    ("Highlight is closed and cloud-only with no model choice. Microsoft's Semantic Index is the same "
+     "idea as our Layer 3, but unshipped, Enterprise/Pro-gated and closed to third parties.", ""),
+    ("The three middle columns are the contribution.", " Memory you own, imported from the assistants "
+     "you already pay for, routed by a policy you declare. Nothing else in the table has any of them."),
 ]
 
 ABLATION_ROWS = [
@@ -831,13 +843,13 @@ def main():
     set_plain(shape_by_name(title_slide, BRAND), "PERCH")
 
     total = len(SLIDES) + 2
-    ARCH_AFTER = "The Positioning Table - The Empty Row"
+    ARCH_AFTER = "The Positioning Table - Where We Actually Differ"
 
     for spec in SLIDES:
         if spec["kind"] == "table_position":
             s = clone(prs, layout_text, text_el)
             add_table_slide(prs, s, spec["title"], POSITION_ROWS, POSITION_CAPTION,
-                            col0_w=1.06, table_top=0.50, caption_top=2.45, total=total)
+                            col0_w=1.24, table_top=0.48, caption_top=2.42, total=total)
         elif spec["kind"] == "table_ablation":
             s = clone(prs, layout_text, text_el)
             add_table_slide(prs, s, spec["title"], ABLATION_ROWS, ABLATION_CAPTION,
