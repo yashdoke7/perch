@@ -71,13 +71,19 @@ NODES (name, lane, icon, subtitle) -- draw every one of these exactly once:
                              badge in the corner, subtitle "per-class floor + margin"
   N11 "BUDGET PACKER"        LANE 2, stacked-layers icon, subtitle "context_window(model) minus reserves"
   N12 "MODEL REGISTRY"       LANE 4, list icon, subtitle "context window per model"
-  N13 "LOCAL — Ollama"       LANE 4, chip icon, subtitle "free, offline, private"
+  N13a "LOCAL — Ollama"      LANE 4, chip icon, subtitle "free, offline, private"
+  N13b "FREE TIER — NVIDIA NIM"  LANE 4, cloud icon, subtitle "no card, 100+ models"
+  N13c "YOUR OWN API KEY"    LANE 4, key icon, subtitle "whatever you already pay for"
   N14 "TOOL LOOP"            LANE 4, gear icon, subtitle "web / files / docs / python / memory"
   N15 "EDIT IN PLACE"        LANE 1, pencil-on-document icon, subtitle "Replace / Insert / Copy"
 
   Below N8, draw six small coloured pill tags in a 3x2 grid, touching the bottom
   edge of the MEMORY STORE card: "IDENTITY", "PROJECT", "ACADEMIC", "CAREER",
   "HEALTH", "PERSONAL". Put a tiny padlock glyph on "HEALTH" and "PERSONAL" only.
+
+  Stack N13a, N13b and N13c as three small cards in a tight vertical column
+  directly to the right of N12, all three the same size, all three at the same
+  horizontal position.
 
 EDGES -- draw every one of these as a numbered arrow, using the number as a small
 circled label at the midpoint of the arrow:
@@ -95,12 +101,26 @@ circled label at the midpoint of the arrow:
   11. N10 -> a small red crossed-circle icon floating just below N10, RED DASHED
       arrow, "dropped — with a reason"
   12. N11 -> N12         "assembled prompt"
-  13. N12 -> N13         "route"
-  14. N13 <-> N14        double-headed arrow, "tool call / result"
-  15. N14 -> N15         "answer"
+  13. N12 -> N13a, N12 -> N13b, N12 -> N13c   three short arrows fanning out from
+      N12's right edge to each of the three stacked route cards, single label
+      "route" placed once next to N12, not repeated three times
+  14. N13a <-> N14, N13b <-> N14, N13c <-> N14   three short double-headed arrows,
+      each route card connects directly to N14 which sits just to its right;
+      one shared label "tool call / result" placed once, centred among the three
+
+  15. *** THIS IS THE EDGE THAT MUST NOT BE LOST ***
+      N14 -> N15    a SINGLE long, clean, mostly-straight arrow running up the
+      FAR RIGHT OUTER EDGE of the entire image, outside and to the right of all
+      four lanes and the side annotation -- starting at N14 (bottom right,
+      LANE 4) and ending at N15 (top right, LANE 1). It must be visibly
+      unbroken and must NOT terminate early at N11, N12, or any other node it
+      passes on the way up. Give it its own dedicated vertical channel of
+      empty space so it cannot be confused with any other arrow. Label it once
+      at the midpoint: a small circled "15" and the word "answer".
+
   16. N15 -> N4           "paste back via saved HWND"      (curves back left,
       long dashed arrow, crossing back into LANE 1 -- this is the loop that closes
-      the diagram, draw it clearly, do not let it overlap N1-N3)
+      the diagram, draw it clearly, do not let it overlap N1-N3 or edge 15)
   17. N6 -> N12          THIN DASHED arrow crossing three lanes downward, small
       label "private forces local" -- this shows privacy constraining execution
       directly, independent of the main numbered flow, draw it visually distinct
@@ -108,10 +128,15 @@ circled label at the midpoint of the arrow:
       of the main sequence
 
 SIDE ANNOTATION
-On the far right, outside the lanes, a narrow vertical callout in light grey text:
+Reserve a dedicated empty vertical channel on the far right of the image, wide
+enough for the edge-15 arrow (see above) AND, further right of that arrow, a
+SINGLE small rounded grey card containing all three lines of text stacked
+inside it, horizontal (not rotated), left-aligned, small but fully legible:
   "L2 + L3 are the contribution"
   "L1 is built and running"
   "L4 is what makes it free"
+This must be ONE card, fully inside the image bounds with margin on all sides,
+never split into separate floating fragments and never rotated 90 degrees.
 
 TITLE, top centre, bold: "PERCH — System Architecture"
 Subtitle beneath it, smaller grey text: "one request, from keystroke to edit,
@@ -128,6 +153,48 @@ arrows: use only horizontal and vertical segments with rounded corners (no
 diagonal lines), route each arrow along the shortest orthogonal path, and
 increase the spacing between nodes in the same lane by 25% so no two arrows
 overlap. Keep every node, every label and every edge number exactly as before.
+```
+
+---
+
+## PROMPT 1c — targeted fix for THIS render (edit, don't regenerate)
+
+If you already have a render that has the right lane structure and most edges
+correct but suffers the specific failures below, this is cheaper and more
+reliable than starting over: paste the existing image back in and give Gemini
+this as an edit instruction.
+
+```
+Edit this diagram. Keep every node, label, colour and edge exactly as they
+are, except for these three fixes:
+
+1. The arrow for edge 15 ("answer") currently stops short at the BUDGET
+   PACKER node instead of reaching EDIT IN PLACE. Redraw it as a single
+   continuous, mostly-straight arrow running up the far right OUTER edge of
+   the whole image -- outside all four coloured lanes -- starting at TOOL
+   LOOP and ending at EDIT IN PLACE. It must not touch or terminate at any
+   node along the way. Keep its "15 answer" label at the midpoint.
+
+2. Add two more small route cards next to the existing "LOCAL — Ollama" card,
+   same size, stacked in a tight vertical column at the same horizontal
+   position: one labelled "FREE TIER — NVIDIA NIM" with a cloud icon and
+   subtitle "no card, 100+ models", and one labelled "YOUR OWN API KEY" with
+   a key icon and subtitle "whatever you already pay for". Connect MODEL
+   REGISTRY to all three with short fanning arrows, and connect TOOL LOOP to
+   all three with short double-headed arrows, the same style as the existing
+   connection to "LOCAL — Ollama".
+
+3. The grey side-annotation text is currently split into separate rotated
+   fragments and partially cut off at the top and bottom edges of the image.
+   Replace it with ONE single rounded grey card, positioned fully inside the
+   image with margin on all sides, containing all three lines horizontally
+   (not rotated), left-aligned, in a legible size:
+     "L2 + L3 are the contribution"
+     "L1 is built and running"
+     "L4 is what makes it free"
+
+Do not change anything else -- same nodes, same colours, same other arrows,
+same title.
 ```
 
 ---
@@ -231,4 +298,7 @@ Paste these one at a time after the first image comes back.
 - [ ] **The dropped/abstain path is visible.** It is the contribution; a diagram that only shows the happy path shows a normal RAG pipeline.
 - [ ] **No real company logos.** Write "Ollama" and "NVIDIA NIM" as text, never as marks.
 - [ ] **It matches the deck.** Same four layers, same order, same colours as slide 13.
+- [ ] **Trace edge 15 with your finger from Tool Loop to Edit In Place.** If it stops early at any other box, that box is quietly claiming to be the last step — say so and use PROMPT 1c.
+- [ ] **Three route cards are visible under Model Registry** — local, free tier, and your own key. One route alone undersells the actual pitch (model choice is free for us, expensive for a $50M-funded competitor to offer).
+- [ ] **The side annotation is one legible card, not split or rotated.**
 - [ ] **Count the arrows, not the boxes.** There should be visible connectors crossing between colour zones — surface into context, context into memory, memory back into context, execution back into surface (edge 16, the paste-back loop). If you can cover any single lane with your hand and the diagram still makes sense as "four separate lists," the connections did not render — ask for the PROMPT 1b orthogonal-routing follow-up, or the fix in the table above.
