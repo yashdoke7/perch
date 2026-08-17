@@ -1,319 +1,428 @@
-# PERCH — References and Evidence Base
+# PERCH — References, Evidence Base and Objection Map
 
-**Working name: PERCH.** *A personal AI that perches beside whatever you are already doing — summoned
-by selection or shortcut, aware of who you are, never a window you have to go to.*
-*(Name is a placeholder; the metaphor is small, alongside, appears and leaves.)*
+**Every claim in the architecture traces to a row in this document.**
 
-> **Status marks:** ✅ verified against a primary source · 🟡 secondary source · ⚠️ not yet read.
-> **Nothing marked ⚠️ is quotable to a panel.**
+> **Verification marks**
+> ✅ **verified in-session** — I opened the source and read it during this project
+> 🟡 **secondary** — reported by a reliable secondary source, primary not opened
+> ⚠️ **from prior knowledge, unverified** — the identifier is probably right but **I did not open it**
+> ❌ **retracted** — was in an earlier draft and is wrong
+>
+> **Rule: nothing marked ⚠️ or 🟡 goes on a slide as a quoted number without being opened first.**
 
 ---
 
 # PART 1 — THE BASE PAPER
 
-> **Framing decision.** An earlier draft used the ACM TOIS memory survey as the base paper. **That was
-> wrong for this panel** — it announces the project as *memory architecture*, which is what NeuroGram
-> (A13) and ContextOS (B9) are, and invites a collision on the first slide. **The base paper must say
-> *personal AI assistant*.** Memory is then visibly one component of an assistant, not the subject.
-
-### ✅ PRIMARY — "PAUSE: A User-Centric Benchmark for Personal AI Assistants in Unified Service Environments"
-**ACM SIGKDD 2026 (KDD '26), 9–13 August 2026, Jeju Island.** arXiv 2607.27354
-
-**Why this is the base paper:**
-
-1. **ACM, 2026** — meets the panel's requirement exactly.
-2. **Its subject is literally "personal AI assistants."** No interpretation needed, no collision with a
-   memory-architecture project.
-3. **Its definition is our specification.** A personal AI assistant must *"reason over persistent user
-   state, respect user-specific configurations and permissions, and sustain long-horizon,
-   constraint-aware interactions."* **"Persistent user state" is our memory layer, named as an
-   assistant capability rather than as an architecture.**
-4. **It evaluates three dimensions** — stateful reasoning, multi-service coordination, user-coupled
-   interaction — the first and third of which are exactly what PERCH is built around.
-
-**And it hands us the gap, quantified:**
-
-> ### *"State-of-the-art proprietary models fail to reach **70% task completion** on scenarios requiring **stateful reasoning and configuration awareness**."*
-
-**That is an ACM 2026 measurement that today's assistants fail at knowing and using who you are.** It is
-the single most useful sentence in our evidence base: the problem is not the model, it is the state
-around it — which is the entire thesis of this project.
-
-**Where it stops, and therefore where we begin:** PAUSE is a **benchmark**. It measures assistants in
-*unified service environments* — assumed to already have access and configuration. It does not build a
-system, does not address how a user supplies their own state, does not address OS-level capture, and
-does not address operating within a fixed token budget across heterogeneous local and cloud models.
-
-### ✅ CONCEPTUAL ANCHOR — "Personal LLM Agents: Insights and Survey about the Capability, Efficiency and Security"
-Li et al., **Institute for AI Industry Research (AIR), Tsinghua University.** arXiv 2401.05459
-
-The definitive taxonomy for this exact product category: agents *"deeply integrated with personal data
-and personal devices and used for personal assistance."* Its three challenge areas map onto our four
-layers almost one-to-one:
-
-| Its category | Its sub-challenges | Our layer |
-|---|---|---|
-| **Fundamental capabilities** | task execution, **context sensing**, **memorization** | L1 Surface, L3 Memory |
-| **Efficiency** | inference, customization, **memory manipulation** | L2 Context, L4 Execution |
-| **Security & privacy** | confidentiality, integrity, reliability | local-first design |
-
-⚠️ **arXiv-only, so it is not the base paper** — but it is the paper whose vocabulary we use throughout,
-and the one that proves "personal LLM agent" is an established research category rather than a product
-idea we invented.
-
-### ✅ SUPPORTING — personalization
-**"From Generic Intelligence to Personalized AI: A Tutorial on Foundations of LLM Personalization"** —
-**ACM SIGKDD 2026**, 10 August 2026. Wang, Zeng, Wang, Wang, Sun, Li, Yu (Beihang, Nankai, BUPT, UIC).
-Six parts: introduction, personalized prompting, personalized adaptation, personalized alignment, data
-foundations and evaluation, future directions. Covers *"user preferences, interaction histories,
-profiles, and contextual signals"* via retrieval-augmented generation, prompting, representation
-learning and RLHF.
-
-**Note honestly:** it does **not** treat memory systems, persistent profiles, context assembly or
-assistant architectures as distinct topics. **That absence is useful to us** — it is a 2026 ACM tutorial
-on personalization that does not cover how you actually assemble a personalized context under a budget.
-
-### ✅ SUPPORTING — memory, now correctly demoted to a component reference
-| Paper | Venue | What we take |
-|---|---|---|
-| **A Survey on the Memory Mechanism of LLM-based Agents** | **ACM TOIS Vol 43(6), 2025**, DOI 10.1145/3748302 | the formal definition and taxonomy of a memory module. **Cited for L3 only** |
-| **Bridging Intuitive Associations and Deliberate Recall: Empowering LLM Personal Assistant with Graph-Structured Long-term Memory** | **Findings of ACL 2025** | dual-path recall — fast associative lookup plus deliberate search |
-| **Memory in the LLM Era: Modular Architectures and Strategies in a Unified Framework** | **VLDB 2026** | modular decomposition we adapt |
-| From Human Memory to AI Memory | arXiv 2504.15965 | episodic/semantic/procedural split |
-| ⚠️ **AdaMem** | arXiv 2606.21144 | write-side selection — what is worth storing at all |
-| ⚠️ **Mnemonic Sovereignty** survey | arXiv 2604.16548 | memory ownership; supports local-first |
-
-> **How to present this to the panel, in one line:** *"Our base paper is a KDD 2026 benchmark for
-> personal AI assistants, which found that even frontier models fall below 70% when a task requires
-> knowing the user's state. We build the assistant that fixes that, on the desktop."*
-
----
-
-# PART 2 — WHY PERSONAL AI PRODUCTS HAVE FAILED, AND WHAT IT TELLS US
-
-**This is the most useful evidence in the document, because the failures are recent, expensive, and
-publicly analysed — and every stated cause is one our design avoids by construction.**
-
-| Product | Outcome |
-|---|---|
-| **Humane AI Pin** | Raised **$230M**, shipped **fewer than 10,000 units**, sold to HP for **$116M** |
-| **Rabbit R1** | Sold **100,000 units**, then **mass returns**; company pivoted |
-| **Rewind AI** | Acquired by Meta (as Limitless). **Mac app shut down 19 Dec 2025**; EU/UK access cut immediately |
-| **Microsoft Recall** | Internally considered a failure; audits found an admin-rights attacker could exfiltrate the database. Microsoft is **cutting back Copilot across Windows** after user backlash (Jan–Feb 2026) |
-
-**The published causes:**
-
-1. **Non-functional at launch** — the Pin's assistant was slow and unreliable; the R1's "Large Action Model" barely worked.
-2. **Hardware constraints that software cannot fix** — the Pin overheated, the R1 died in four hours.
-3. **Solving too many problems** — the Pin promised to replace phone, watch, assistant and camera, and *"failed at everything."*
-4. **Building a separate thing instead of improving existing tools** — *"they could have leveraged the power of existing smartphones."*
-
-> ### The stated lesson, verbatim:
-> ### ***"AI doesn't need a new gadget — it needs to improve the tools you already use."***
-
-**And the Microsoft failures add a fifth cause:** users did not object to capability, they objected to
-**forced integration** and **always-on capture**. The complaint was incoherence — *"Microsoft has
-ingredients in Copilot, Windows Search, File Explorer, Recall, Edge, PowerToys, and Phone Link, but
-the meal still arrives as separate plates."*
-
-**How PERCH is designed against each:**
-
-| Failure cause | Our design decision |
-|---|---|
-| New hardware | **No hardware.** Software only, existing laptop |
-| Too many problems | **One primitive**: bring an AI to the thing you are already looking at |
-| Separate destination | **No destination** — it appears where you are |
-| Always-on capture | **Summoned only.** Nothing is read unless you invoke it |
-| Forced integration | **Opt-in by definition** — a shortcut you press |
-| Incoherence | **One surface, one memory, one place to configure** |
-
----
-
-# PART 3 — COMPETITORS, VERIFIED INDIVIDUALLY
-
-## 3.1 Highlight AI — the closest competitor ✅
+## ✅ PAUSE — *A User-Centric Benchmark for Personal AI Assistants in Unified Service Environments*
 
 | | |
 |---|---|
-| **Funding** | **$50M total** — $10M seed (2024), **$40M Series A March 2026** led by Khosla Ventures (General Catalyst, Valor Equity, SV Angel, Makers Fund) |
-| **Users** | **500,000+**, including employees at Google and DoorDash |
-| **Origin** | 2024 spinoff from Medal (a game-clip recorder). New CEO appointed March 2026 |
-| **Platforms** | Mac and Windows, free tier |
+| **Venue** | **ACM SIGKDD 2026 (KDD '26)**, 9–13 August 2026, Jeju Island, Republic of Korea |
+| **Authors** | Haoyu Chen, Xirui Shi, Yuyao Wang, Jerry Chen, Di Niu |
+| **Link** | https://arxiv.org/abs/2607.27354 · full text: https://arxiv.org/html/2607.27354v1 |
 
-**What it does:** select on-screen text to summarize, translate or analyze; talk, type or screenshot;
-grounds responses in current screen activity; local audio transcription; voice control of apps;
-integrations with GitHub, Notion, Slack, Google Calendar.
+**What it contains — read this before the review:**
 
-**✅ THE CRITICAL FINDING — they left this segment.** With the Series A they repositioned as
-*"the Shared Intelligence Layer for the Agentic Age of Work"* — an **"intelligent operating system for
-teams and AI agents."** Their headline capabilities are now **meeting preparation, attendee insights,
-decision summaries and team intelligence.**
+- **The definition we adopt as our specification.** A personal AI assistant must *"reason over persistent
+  user state, respect user-specific configurations and permissions, and sustain long-horizon,
+  constraint-aware interactions across multiple services."*
+- **The gap it identifies in existing benchmarks:** they *"fragment service contexts or abstract away
+  user state"*, so they cannot evaluate user-centric assistant behaviour realistically.
+- **What the benchmark requires of an agent:** coordinate actions across heterogeneous **user-owned**
+  resources while staying consistent with environment state and authorization constraints, over
+  multi-turn interactions, with **realistic user simulation** rather than static tool execution.
+- **A multi-regime evaluation framework:** open-ended service-management tasks judged by semantic and
+  trajectory-level behavioural metrics; constraint-intensive tasks by deterministic state-based
+  verification.
+- **The headline result we quote:** *"even state-of-the-art proprietary models fail to reach 70% task
+  completion on scenarios requiring stateful reasoning and configuration awareness, revealing consistent
+  and interpretable failure patterns."*
+- **A user-centric synthesis pipeline** for generating service environments, user configurations and
+  annotated tasks.
 
-> **The incumbent executed a B2C → B2B pivot in March 2026. The individual user is no longer their
-> product.**
+**Why it is the base paper:** ACM, 2026, and its subject is literally *personal AI assistants* — so it
+cannot be misread as a memory-architecture project and cannot collide with NeuroGram or ContextOS on
+the first slide.
 
-**Weaknesses to compete on:**
-- **Cloud-dependent**, and now rate-limited — their own framing: *"frontier models cost money... no app can give them away for free forever."*
-- **No model choice.** You use what they route to.
-- Reported uninstall problems — leftover processes and startup errors.
-- **Closed source.**
+⚠️ **Still unknown, and you should know this before you present it:** the abstract does **not** name
+which proprietary models were tested, how many tasks the benchmark contains, or what the "consistent and
+interpretable failure patterns" actually are. **I have the abstract and the sub-70% figure; I do not
+have the internals.** If a panel member asks *"which models?"* the honest answer is that the number is
+from the abstract and the model list needs the full PDF.
 
-## 3.2 Microsoft — building it, but gated and retreating ✅
-**Windows 11 "Click to Do"** performs AI actions on selected screen content — the same primitive.
-**But it requires a Copilot+ PC**, i.e. a dedicated NPU. Most laptops, and the overwhelming majority in
-India, do not have one. And Microsoft is actively **dialling back** its Windows AI push after backlash.
+**Where it stops, and therefore where we begin:** it is a **benchmark**, evaluating assistants inside
+unified service environments that already have access and configuration. It does not build a system,
+does not address how a user supplies their own state, does not address OS-level capture, and does not
+address operating within a fixed token budget across heterogeneous local and cloud models.
 
-## 3.3 The Mac-only wall ✅
+## ✅ Conceptual anchor — *Personal LLM Agents: Insights and Survey*
+
+Li et al., Institute for AI Industry Research (AIR), **Tsinghua University** — https://arxiv.org/abs/2401.05459
+
+The taxonomy for this product category: agents *"deeply integrated with personal data and personal
+devices and used for personal assistance."*
+
+| Its category | Its sub-challenges | Our layer |
+|---|---|---|
+| Fundamental capabilities | task execution, **context sensing**, **memorization** | L1 Surface, L3 Memory |
+| Efficiency | inference, customization, **memory manipulation** | L2 Context, L4 Execution |
+| Security & privacy | confidentiality, integrity, reliability | local-first design |
+
+⚠️ **arXiv-only, so not the base paper** — but it is the vocabulary we use, and it proves "personal LLM
+agent" is an established research category, not a product idea we invented.
+
+---
+
+# PART 2 — ★ THE PAPERS BEHIND OUR RETRIEVAL CONTRIBUTION
+
+**These four are the most important documents in this project after the base paper. They define the
+problem the ranker and admission scorer exist to solve, and they are the prior art we must not
+overclaim against.**
+
+## ✅ *Beyond Similarity: Trustworthy Memory Search for Personal AI Agents* — **MemGate**
+
+https://arxiv.org/abs/2606.06054 · full text: https://arxiv.org/html/2606.06054v1
+
+**Read this one first.** It is the closest published work to your ranker/scorer idea.
+
+- **The problem, named:** semantic similarity retrieves relevant information but *"fails to ensure
+  contextual **admissibility**"* — a memory unit *"satisfies the semantic ranking criteria but violates
+  contextual admissibility."* **This is exactly the medical-college failure you described.**
+- **The four failure modes it identifies:** cross-domain leakage, sycophancy amplification, tool-call
+  drift, memory-induced jailbreaks.
+- **Their method:** MemGate, *"a lightweight query-conditioned retrieval gate that re-ranks candidate
+  memories before they enter the LLM context"* — a **continuous mask over frozen embeddings**, sitting
+  between vector retrieval and prompt construction, with no LLM modification and no extra judge call.
+- **Results (GPT-4o-mini):** cross-domain leakage **27.0% → 3.5%**; jailbreak success **16.8% → 4.4%**;
+  LoCoMo F1 **38.9 → 40.8**.
+- **What they leave open:** sycophancy persists due to base-model agreement bias.
+
+> **Consequence for us: we cannot claim to have invented memory gating.** §4.6 of the architecture
+> states this plainly. Our difference is that MemGate's gate is **learned and opaque** — it cannot tell
+> you why it dropped something — whereas ours is **typed at the source and auditable**, and the same
+> type system also drives privacy routing. **MemGate is also our baseline for E4.**
+
+## ✅ *OP-Bench: Benchmarking Over-Personalization for Memory-Augmented Personalized Conversational Agents*
+
+https://arxiv.org/abs/2601.13722 · full text: https://arxiv.org/html/2601.13722v1
+
+**This is our primary evaluation target (E1), and it contains the single most useful number we have.**
+
+- **Definition:** over-personalization is when memory-augmented systems apply user information
+  inappropriately, producing responses that feel *"forced, intrusive, or socially inappropriate."*
+- **Three categories:** **Irrelevance** (injecting personal references when the query doesn't warrant it
+  — *our exact failure*), **Sycophancy**, **Repetition**.
+- **Size:** **1,700 verified instances across 20 users.** Irrelevance 418 (24.6%), Repetition 882
+  (51.9%), Sycophancy 400 (23.5%). Built from LoCoMo user profiles, LLM-generated queries, three-stage
+  human review.
+- **Measured failure modes:** over-retrieval (~80% similarity even in deliberately *baited* cases);
+  models attend to **memory tokens 2× more than to the user's own query**; linguistic drift toward
+  deferential language; response collapse.
+- ### **The headline: memory-augmented methods score 26.2%–61.1% *worse* than memory-free baselines.**
+- **And the counter-intuitive finding:** more sophisticated memory systems (MemU, MEMOS) over-personalise
+  **more** than plain RAG.
+- Their mitigation, *Self-ReCheck*, reduces over-personalization by **29%** on average.
+
+> **Why this matters more than any other number in the deck:** it proves that naive memory injection
+> makes an assistant *worse than having no memory at all*. **Our admission gate is not a refinement —
+> it is the thing that makes memory a net positive.**
+
+## ✅ *Personalize-then-Store: Benchmarking and Learning Personalized Memory for Long-horizon Agents* — **PerMemBench**
+
+https://arxiv.org/abs/2605.25535 · code: https://github.com/yeonjun-in/PerMemBench
+Yeonjun In, Wonjoong Kim, Sangwu Park, Kanghoon Yoon, Chanyoung Park — **KAIST**
+
+**This is the citation behind our write-side gating (§3.4), i.e. your "we can't overload the memory".**
+
+- **The problem:** existing memory systems apply *"universal, static policies"* that ignore the fact
+  that what is worth storing differs per user — wasting a limited memory budget on transient
+  interactions while failing to preserve critical context.
+- **Their proposal:** **session-level storage gating** — a lightweight framework that selectively
+  bypasses memory operations for transient sessions.
+- **Their honest finding:** personalization yields substantial retention gains *under perfect gating*,
+  but **accurate gating remains an open and critical challenge.**
+- First benchmark for personalized memory: multi-year, multi-domain histories across personas.
+
+## ✅ *Externalization in LLM Agents: A Unified Review of Memory, Skills, Protocols and Harness Engineering*
+
+https://arxiv.org/abs/2604.08224
+
+**This is the survey that names our C1 as an open problem without solving it.**
+
+> The context window *"remains the scarcest shared resource"* in agent systems, where **memory
+> retrieval, skill loading, protocol schemas, tool descriptions and reasoning traces all compete for the
+> same finite token budget**, making this *"a harness-level coordination problem."*
+
+**Use this sentence when the panel asks why budget assembly is a contribution rather than engineering.**
+
+---
+
+# PART 3 — PRIOR ART IN GATED AND CORRECTIVE RETRIEVAL
+
+**We must cite these ourselves before anyone raises them.**
+
+| Work | Link | What it does | Why it is not us |
+|---|---|---|---|
+| ⚠️ **CRAG** — Corrective RAG | arXiv 2401.15884 | a lightweight **retrieval evaluator** scores retrieved docs; below a **relevance threshold** it triggers correction — Correct / Ambiguous / Incorrect, falling back to web search | operates on a document corpus for QA; no personal memory, no classes, no budget, no privacy coupling |
+| ⚠️ **Self-RAG** | arXiv 2310.11511 | trains **reflection tokens** so the model decides *when* to retrieve and critiques relevance and factuality | requires training the generator; we gate outside the model |
+| 🟡 **Adaptive-RAG / L-RAG** | arXiv 2601.06551 | entropy-based lazy loading — retrieve only when the model is uncertain | complementary; a candidate v2 addition |
+| 🟡 **Beyond Semantic Relevance** — counterfactual risk minimization for RAG | arXiv 2605.01302 | gates inclusion by a predicted **robustness score** above a safety threshold | same shape, general RAG, not personal memory |
+| 🟡 **MemGuard** | arXiv 2605.28009 | preventing **memory contamination** in long-term memory-augmented LLMs | adversarial/poisoning framing; ours is relevance, not attack |
+
+> **Our honest position:** thresholded admission is established practice. **What is ours is doing it on
+> a user-declared type system that is simultaneously the privacy primitive, under a token budget that
+> varies by an order of magnitude across models.**
+
+---
+
+# PART 4 — MEMORY: STATE OF THE ART WE BUILD ON
+
+| Work | Link | What we take |
+|---|---|---|
+| ✅ **Mem0** — *Building Production-Ready AI Agents with Scalable Long-Term Memory*, **ECAI 2025** | https://arxiv.org/abs/2504.19413 | scope layering and promotion; first broad head-to-head of ten memory approaches on LoCoMo. Reports **91% lower p95 latency** and **>90% token saving** vs full-context |
+| ⚠️ **Zep** — temporal knowledge graph for agent memory | arXiv 2501.13956 | time-aware queries; graph traversal + vector search |
+| ⚠️ **MemGPT / Letta** — *Towards LLMs as Operating Systems* | arXiv 2310.08560 | core memory always in context + archival memory retrieved on demand |
+| ✅ **A Survey on the Memory Mechanism of LLM-based Agents**, **ACM TOIS 43(6), 2025** | https://doi.org/10.1145/3748302 | the formal definition and taxonomy of a memory module. **Cited for L3 only** — deliberately not the base paper |
+| 🟡 *Bridging Intuitive Associations and Deliberate Recall*, **Findings of ACL 2025** | — | dual-path recall: fast associative lookup + deliberate search |
+| 🟡 *Memory in the LLM Era: Modular Architectures and Strategies*, **VLDB 2026** | — | modular decomposition we adapt |
+| ⚠️ **AdaMem** | arXiv 2606.21144 | write-side selection — what is worth storing at all |
+| ⚠️ **Mnemonic Sovereignty** survey | arXiv 2604.16548 | memory ownership; supports local-first |
+| 🟡 *Implicit Graph, Explicit Retrieval* | arXiv 2601.03417 | efficient interpretable long-horizon memory |
+
+---
+
+# PART 5 — BENCHMARKS WE CAN ACTUALLY RUN
+
+| Benchmark | Link | Contents | Our use |
+|---|---|---|---|
+| ✅ **OP-Bench** | arXiv 2601.13722 | 1,700 instances, 20 users; irrelevance / repetition / sycophancy | **E1 — primary.** Directly measures the failure our gate prevents |
+| ⚠️ **LongMemEval** | arXiv 2410.10813 | 500 questions, 6 categories; five abilities including **abstention**; 115K (S) to 1.5M (M) token settings | **E3** — and the abstention category validates the gate |
+| ⚠️ **LoCoMo** | arXiv 2402.17753 | 1,540 questions, 4 categories, ~300 turns, up to 35 sessions | **E3** — comparability with Mem0/MemGate |
+| ✅ **PerMemBench** | arXiv 2605.25535 | multi-year multi-domain personalized memory | write-side gating evaluation |
+| 🟡 **From Recall to Forgetting** | arXiv 2604.20006 | long-term memory for personalized agents, incl. forgetting | candidate for the forgetting/caps policy |
+| ⚠️ LongMemEval-V2 · StreamMemBench | arXiv 2605.12493 · 2606.14571 | harder, newer settings | **to read** — are they runnable by us? |
+
+> ⚠️ **Framing discipline:** 2026 reference scores are **LoCoMo 92.5%, LongMemEval 94.4%, BEAM-1M 62%.**
+> LoCoMo and LongMemEval are near-saturated. **We do not pitch beating them.** We use them to validate
+> competence and we say so. **OP-Bench is where we can genuinely move a number, because the baselines
+> there are bad on purpose — memory systems score 26–61% worse than no memory at all.**
+
+---
+
+# PART 6 — ★ THE OBJECTION MAP
+
+**You asked me to find anything that could produce an objection. This is that list.**
+
+## 6.1 🔴 SEVERE — Microsoft Windows AI Platform (Build 2026)
+
+🟡 https://zylos.ai/research/2026-06-24-windows-ai-agent-platform-build-2026/
+
+**The objection:** *"Microsoft is building this into Windows. Why are you building it?"*
+
+**What was announced:** Copilot Runtime (on-device inference), AI Orchestrator (agent lifecycle and
+routing), and the **Windows Semantic Index** — *"a personal semantic index encrypted with Windows Hello
+biometrics, enabling persistent agent memory and context"* — over a Windows Agent Runtime providing
+sandboxed execution, persistent memory storage and agent-to-agent communication.
+
+**Also announced: the NPU requirement was dropped.** Capability now scales with GPU VRAM (<2 GB basic,
+4 GB mid, 8 GB full local inference, 12+ GB large). Nadella: *"We made a mistake by tying the AI
+narrative to a hardware spec."*
+
+> ### ❌ RETRACTION: our earlier claim that "Click to Do requires a Copilot+ PC NPU" is now out of date as a general statement about Windows AI. Do not use it.
+
+**Our four verified answers:**
+
+1. **Unshipped.** Copilot Runtime targets GA with **Windows 11 26H2**.
+2. **Edition-gated.** Initial rollout targets **24H2 Enterprise/Pro** with VBS and SLAT. **Windows 11
+   Home is not the target** — which is what most students in India actually run.
+3. **No documented third-party access** to the Semantic Index. You cannot point your own agent or your
+   own model at it.
+4. **Track record.** Microsoft killed Copilot features and merged the Copilot apps in **August 2026**
+   (🟡 TechCrunch, 13 Aug 2026); Recall was judged a failure after audits found an admin-rights attacker
+   could exfiltrate the database.
+
+**The line to use:** *"Microsoft concluded a personal semantic index is the right architecture — that
+validates ours. Theirs is closed, edition-gated, unshipped and locked to their models. Ours runs on Home
+edition today, on any model, including one that never leaves the machine."*
+
+## 6.2 🔴 SEVERE — "Your gating idea is MemGate"
+
+See §Part 2. **Cite it ourselves, first.** Fall back on C1 if C2 is judged insufficient.
+
+## 6.3 🟠 MODERATE — Highlight AI
+
+✅ https://www.businesswire.com/news/home/20260324500318/en/
+
+**Verified:** $40M Series A, March 2026, led by Khosla Ventures with 359 Capital, General Catalyst,
+Valor Equity, Common Metal, Makers Fund, Collaborative Fund, Arcadia, SV Angel. CEO **Sergei Sorokin**,
+former Discord VP of Product. Positioning: *"the shared intelligence layer for the agentic age of
+work"*, an intelligent OS for **teams**, sitting above existing enterprise applications, capturing work
+as it happens so knowledge persists across team changes.
+
+> ### ❌ CORRECTION: I earlier wrote that "the individual user is no longer their product." **I cannot verify that the consumer app was discontinued.** Say *"repositioned toward teams and enterprise"* — which is documented — and nothing stronger.
+
+## 6.4 🟠 MODERATE — adjacent 2026 personal-assistant benchmarks
+
+| Work | Link | Why it could be raised |
+|---|---|---|
+| **π-Bench** — *Evaluating Proactive Personal Assistant Agents in Long-Horizon Workflows* | arXiv 2605.14678 | another 2026 personal-assistant benchmark. **Difference: proactivity.** PERCH is deliberately *summoned only* — proactive capture is the Recall failure mode. Cite as related, state the design choice |
+| **Re-Centering Humans in LLM Personalization** | arXiv 2606.06614 | position paper on personalization done wrong; supports user-authored memory |
+| **MacAgentBench** | arXiv 2606.22557 | macOS desktop agents. Different OS, and it is *task automation*, not context-carrying |
+| **OSWorld 2.0** (XLANG Lab, HKU, June 2026) | — | 108 long-horizon workflows, median ~1.6 h, ~318 tool calls. **We are not doing OS automation** — say so before it is asked |
+
+> **The distinction to hold onto:** OSWorld / MacAgentBench / π-Bench evaluate agents that **do tasks
+> for you across the OS**. PERCH **carries your context to wherever you are working.** Automation is
+> explicitly v2, and naming it as v2 is what stops the scope-sprawl objection.
+
+## 6.5 🟢 MINOR — the local-first tool category
+
+| Tool | Local? | OS-integrated? |
+|---|---|---|
+| **Jan.ai** — 5.3M downloads | ✅ | ❌ an app window you open |
+| AnythingLLM · Khoj · PyGPT · Chatbox | ✅ | ❌ |
+| Open Cowork · LIYA Neural OS · PyWinAssistant | ✅ | partial |
+
+**Every one is a destination.** You leave what you are doing and go to it. **That is the behaviour PERCH
+exists to remove.**
+
+## 6.6 🟢 MINOR — the Mac-only wall
+
 | Tool | Cost | Platform |
 |---|---|---|
 | Raycast AI | $8/month | **Mac** |
 | Apple Intelligence | free, built in | **Mac / iOS** |
-| Dottie | free, open source | **Mac** |
-| BoltAI | $79 one-time | **Mac** |
+| Dottie · BoltAI | free / $79 | **Mac** |
 
-**The entire "best AI assistant" review category is a Mac category.** Windows is served by Highlight
-(now enterprise-focused) and Microsoft (hardware-gated).
+The entire "best AI assistant" review category is a Mac category.
 
-## 3.4 Local-first tools — right philosophy, wrong shape ✅
-| Tool | Local? | OS-integrated? |
+---
+
+# PART 7 — THE IMPORT MECHANISM
+
+**✅ Verified in-session. This is what makes §1.4 of the architecture true.**
+
+| Platform | Route | Format |
 |---|---|---|
-| **Jan.ai** — 5.3M downloads | ✅ | ❌ **an app window you open** |
-| AnythingLLM | ✅ | ❌ |
-| Khoj — self-hostable second brain | ✅ | ❌ |
-| PyGPT — Win/Mac/Linux, context history | ✅ | ❌ |
-| Chatbox — local via Ollama | ✅ | ❌ |
-| Open Cowork, LIYA Neural OS, PyWinAssistant | ✅ | partial |
+| **ChatGPT** | Settings → Data Controls → **Export data** → emailed ZIP (a ZIP inside a ZIP, including media) | `conversations.json` |
+| **Claude** | Settings → **Privacy** → request data export → emailed download link | JSON |
+| **Gemini** | **Google Takeout** → deselect all → select Gemini → emailed archive, usually within hours | JSON / HTML |
 
-> **Every one of these is a destination.** You leave what you are doing and go to them. **That is the
-> exact behaviour PERCH exists to remove.**
-
-## 3.5 The positioning table — the empty row
-
-| | Windows | No special hardware | Local option | Cloud choice | Selection-triggered | Individual user | Open source |
-|---|---|---|---|---|---|---|---|
-| Highlight AI | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ **pivoted** | ❌ |
-| Click to Do | ✅ | ❌ **NPU** | ✅ | ❌ | ✅ | ✅ | ❌ |
-| Raycast / Apple | ❌ | — | partial | partial | ✅ | ✅ | ❌ |
-| Jan.ai / PyGPT / Khoj | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| **PERCH** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+**And the negative result, equally important:** ❌ **a ChatGPT Plus or Claude Pro subscription cannot be
+used as an API endpoint.** API access is separately billed with a separate key. There is no supported
+path, and unsupported ones violate the terms. **Say this plainly if asked — it is a question that will
+come up.**
 
 ---
 
-# PART 4 — MEMORY: THE STATE OF THE ART WE BUILD ON
+# PART 8 — WHY PERSONAL AI PRODUCTS HAVE FAILED
 
-## 4.1 Existing frameworks ✅
-| Framework | Approach |
+| Product | Outcome |
 |---|---|
-| **Mem0** | extracts structured facts, stores in a vector DB, retrieves by semantic similarity. **Layers memory by scope** — conversation, session, user, organisation — and **promotes facts between layers** |
-| **Zep** | builds a **temporal knowledge graph**; combines graph traversal with vector search. Best for time-aware queries |
-| **Letta (MemGPT)** | in-context **core memory** always present + **archival memory** retrieved on demand |
-| **LangMem, Supermemory** | memory primitives |
+| **Humane AI Pin** | raised **$230M**, shipped **<10,000 units**, sold to HP for **$116M** |
+| **Rabbit R1** | **100,000 units**, then mass returns |
+| **Rewind AI** | acquired by Meta as Limitless; Mac app **shut down 19 Dec 2025**, EU/UK access cut immediately |
+| **Microsoft Recall** | audits found an admin-rights attacker could exfiltrate the database; Copilot cut back across Windows through 2026 |
 
-**Published performance:** modern retrieval stacks reach **~7,000 tokens per retrieval at >91% recall**
-on LoCoMo-style long-horizon benchmarks, versus **25,000–100,000+ tokens** for full-context approaches.
-Reported gains: **26% on LoCoMo**, **20–30% on LongMemEval** over naive RAG or full-context.
+**Published causes:** non-functional at launch · hardware constraints software cannot fix · solving too
+many problems at once · building a separate thing instead of improving existing tools.
 
-**What we take:** Mem0's scope layering and promotion. **What we do not claim:** inventing memory.
+> ### ***"AI doesn't need a new gadget — it needs to improve the tools you already use."***
 
-## 4.2 Benchmarks ✅ — the component evaluation we can actually run
+**And the Microsoft failures add a fifth:** users did not object to capability, they objected to
+**forced integration** and **always-on capture**.
 
-| Benchmark | Contents |
+| Failure cause | Our design decision |
 |---|---|
-| **LongMemEval** | **500 questions, 6 categories** — single-session user recall, single-session assistant recall, single-session preference recall, knowledge update, temporal reasoning, multi-session recall. Tests five abilities: extraction, multi-session reasoning, temporal reasoning, knowledge updates, **abstention**. Settings at **115K tokens** (S) and up to **1.5M** (M) |
-| **LoCoMo** | **1,540 questions, 4 categories** — single-hop, multi-hop, open-domain, temporal. ~**300 turns**, ~9K tokens, up to **35 sessions** per conversation |
-| **PersonaMem, PerLTQA, DialSim, BEAM** | personalised memory — explicit facts and implicit preferences |
-
-**2026 reference scores: LoCoMo 92.5%, LongMemEval 94.4%, BEAM-1M 62%.**
-
-> ⚠️ **Important framing:** LoCoMo and LongMemEval are near-saturated. **We do not pitch beating them.**
-> We use them to *validate* that our memory layer is competent, and we report honestly. The
-> practitioner consensus is that *"no single evaluation fully characterizes production memory
-> performance."* **BEAM-1M at 62% is the honest headroom.**
-
-⚠️ **To read:** LongMemEval-V2 (arXiv 2605.12493) and StreamMemBench (arXiv 2606.14571) — both target
-newer, harder settings.
+| New hardware | **none.** Software, existing laptop |
+| Too many problems | **one primitive**: bring your context where you already are |
+| Separate destination | **no destination** — it appears where you are |
+| Always-on capture | **summoned only.** Nothing is read unless you invoke it |
+| Forced integration | **opt-in by definition** — a shortcut you press |
+| Incoherence | one surface, one memory, one place to configure |
 
 ---
 
-# PART 5 — MODEL ECONOMICS: WHY THIS IS BUILDABLE AND CHEAP NOW
+# PART 9 — MODEL ECONOMICS AND BUILD STACK
 
-## 5.1 Local models crossed the line in 2026 ✅
+## 9.1 Local models crossed the line in 2026
+
 | Model | Footprint | Quality |
 |---|---|---|
 | **Qwen3 4B** | **~3 GB** (Q4) | practical on any laptop |
-| **Qwen3 8B** | **~5.2–6 GB** (Q4) | fits 8 GB RAM comfortably |
-| Llama 3.3 8B | — | **73% MMLU** |
-| Qwen3 14B | — | **83% MMLU, 85% HumanEval** |
-| Phi-4 (14B) | — | strongest small open-weight in its class |
+| **Qwen3 8B** | **~5.2–6 GB** (Q4) | fits 8 GB RAM |
+| Llama 3.3 8B | — | 73% MMLU |
+| Qwen3 14B | — | 83% MMLU, 85% HumanEval |
+| Phi-4 (14B) | — | strongest small open-weight in class |
 
-> *"Small quantized models are now genuinely capable for personal assistant tasks like note
-> organization, coding help, and general writing."* **This was not true in 2024. It is what makes the
-> local option real rather than a compromise.**
+## 9.2 The cost floor is effectively zero
 
-## 5.2 The cost floor is effectively zero ✅
 | Route | Terms |
 |---|---|
-| **Ollama, local** | free, open source, **no rate limit on localhost:11434** |
-| **NVIDIA NIM** | free API key with the Developer Program, **no credit card**, ~1,000 credits, **100+ models** (DeepSeek, Llama, Qwen, Mistral, Nemotron). Practical community baseline **~40 requests/minute** |
-| **OpenRouter BYOK** | bring your own provider key; **free up to $25,000/month of list-price inference**, then 5% |
+| **Ollama, local** | free, open source, **no rate limit on `localhost:11434`** |
+| **NVIDIA NIM** | free key with the Developer Program, **no credit card**, 100+ models, ~40 req/min |
+| **OpenRouter BYOK** | your own provider key |
 
-> **A student can run PERCH for ₹0 — fully local, or on NIM's free tier, or with their own key. That is
-> the pricing story, and it is the one thing a $50M-funded competitor structurally cannot match.**
+> **A student can run PERCH for ₹0.** That is the one thing a $50M-funded competitor structurally
+> cannot match.
 
----
-
-# PART 6 — BUILD STACK, VERIFIED
-
-## 6.1 Tauri v2 over Electron ✅ — and this matters more than usual
+## 9.3 Tauri v2 over Electron
 
 | | **Tauri v2** | Electron |
 |---|---|---|
-| Installer | **< 10 MB** | > 100 MB |
+| Installer | **<10 MB** | >100 MB |
 | **Idle RAM** | **30–50 MB** | **150–300 MB** |
-| Gap | **~25× smaller bundle, 50–75% less memory** | |
 
-Real migration: **Hoppscotch went 165 MB → 8 MB with a 70% memory reduction.**
-Guidance for 2026: *"start a new app in Tauri v2 unless you have a specific reason not to."*
+Hoppscotch's migration: **165 MB → 8 MB, 70% memory reduction.**
+**PERCH is always running** — this is a product decision, not a taste decision.
 
-> **PERCH is always running.** A background assistant that idles at 250 MB is a background assistant
-> users uninstall. **30–50 MB is the difference between a tool people keep and one they don't.** This
-> is a product decision, not a taste decision.
+## 9.4 OS integration — primary sources
 
-## 6.2 OS integration ✅
-**Microsoft UI Automation** is the documented Windows accessibility framework providing *"programmatic
-access to most user interface elements on the desktop"*, exposing `IUIAutomationElement` per element.
-It exists precisely so assistive tools can read other applications. **This is the supported path — not
-a hack.** Global hotkeys, clipboard access and screen capture are all standard Win32.
+| | |
+|---|---|
+| **Microsoft UI Automation** | https://learn.microsoft.com/en-us/windows/win32/winauto/entry-uiauto-win32 — *"programmatic access to most user interface elements on the desktop"* |
+| `IUIAutomationElement`, `TextPattern`, `GetSelection` | Win32 accessibility reference |
+| `RegisterHotKey`, `SendInput`, `GetForegroundWindow`, `GetWindowRect`, clipboard API | Win32 API reference |
+| **Tauri v2** | https://v2.tauri.app/ — `alwaysOnTop`, `skipTaskbar`, `transparent`, global-shortcut plugin |
+| Rust crates | `uiautomation`, `arboard`, `windows`, `tauri-plugin-global-shortcut`, `xcap` |
 
-**No legal barrier.** Documented, permissioned APIs, used by screen readers and RPA tools.
-**Practical frictions:** screen-reading apps can trip antivirus heuristics, and any capture behaviour
-must be visibly user-initiated to avoid the Recall backlash.
+**No legal barrier** — documented, permissioned APIs used by screen readers and RPA tools for twenty
+years. **Practical frictions:** antivirus heuristics on screen-reading behaviour; capture must be
+visibly user-initiated.
 
 ---
 
-# PART 7 — WHAT WE CLAIM AND WHAT WE DO NOT
+# PART 10 — WHAT WE CLAIM AND WHAT WE DO NOT
 
-| We do **not** claim | Why |
+| We do **not** claim | Because |
 |---|---|
 | Inventing selection-triggered AI | Highlight and Click to Do exist |
 | Inventing agent memory | Mem0, Zep, Letta are mature |
-| Beating LoCoMo / LongMemEval | Near-saturated at 92–94% |
-| A novel retrieval algorithm | Not needed, not credible |
+| **Inventing memory gating** | **MemGate (2026) does exactly this** |
+| Inventing relevance thresholds | CRAG, Self-RAG |
+| **Inventing an OS-level personal index** | **Microsoft's Windows Semantic Index** |
+| Beating LoCoMo / LongMemEval | near-saturated at 92–94% |
+| A novel retrieval algorithm | not needed, not credible |
 
 | We **do** claim |
 |---|
-| **The first open-source, model-agnostic, OS-integrated personal assistant that runs fully local on ordinary hardware** — the empty row in §3.5 |
-| **User-authored memory** — structured personal context the user writes and owns, routed by relevance, not silently extracted from conversation |
-| **Token-budget-aware context assembly** that adapts to whichever model is selected, so the same memory layer works from a 4B local model to a frontier API |
-| **An honest component evaluation** on public memory benchmarks, plus latency and privacy measurements nobody publishes for a real assistant workload |
+| **C1** — token-budget-aware context assembly that adapts across a **4B local model to a frontier API**, so one memory layer serves both. Named as an open coordination problem by the 2026 externalization survey |
+| **C2** — **declarative, auditable admission** on a user-owned six-class type system that *also* drives privacy routing. MemGate's learned gate cannot explain a rejection; ours can |
+| **C3** — **import from official platform exports** — the only ToS-legitimate cross-vendor bridge, with class-typed extraction and human review |
+| **C4** — the first open-source, model-agnostic, OS-integrated personal assistant that runs fully local on ordinary Windows Home hardware |
+| **E** — an honest evaluation on **OP-Bench**, plus latency and packet-capture privacy measurements nobody publishes for a real assistant workload |
 
 ---
 
-# PART 8 — READING QUEUE
+# PART 11 — READING QUEUE, IN PRIORITY ORDER
 
-1. ⚠️ **Base paper full text** — ACM TOIS 10.1145/3748302. Extract its taxonomy verbatim; our architecture must speak its vocabulary
-2. ⚠️ **ACL 2025 graph-structured personal assistant memory** — closest prior work to our retrieval design
-3. ⚠️ **AdaMem** (2606.21144) — write-side selection
-4. ⚠️ **LongMemEval-V2** (2605.12493) and **StreamMemBench** (2606.14571) — are these runnable by us?
-5. ⚠️ **Mnemonic Sovereignty survey** (2604.16548) — supports the local-first argument
-6. ⚠️ **Confirm Highlight's pivot** from their own site/blog, not press coverage — it is load-bearing for §3.1
+| # | What | Why it matters |
+|---|---|---|
+| 1 | **MemGate** full text — https://arxiv.org/html/2606.06054v1 | closest prior art to C2. **Read before writing the contribution slide** |
+| 2 | **OP-Bench** full text — https://arxiv.org/html/2601.13722v1 | our primary evaluation. Need the exact scoring protocol |
+| 3 | **PAUSE** full PDF — https://arxiv.org/abs/2607.27354 | models benchmarked, task counts, failure patterns are **still unknown** |
+| 4 | **Externalization survey** — https://arxiv.org/abs/2604.08224 | the sentence that justifies C1 as research |
+| 5 | **PerMemBench** — https://arxiv.org/abs/2605.25535 + GitHub | write-side gating; is it runnable by us? |
+| 6 | π-Bench — https://arxiv.org/abs/2605.14678 | the proactivity contrast |
+| 7 | LongMemEval-V2 (2605.12493), StreamMemBench (2606.14571) | harder settings |
+| 8 | Confirm the Windows Semantic Index details from **Microsoft's own Build 2026 material**, not secondary coverage | §6.1 is load-bearing and currently 🟡 |

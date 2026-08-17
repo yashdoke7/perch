@@ -1,440 +1,833 @@
-# PERCH — Architecture
+# PERCH — Architecture (final)
 
-> **PERCH is a personal AI agent that is not trapped inside an application.**
-> It lives where your desktop lives — dormant in the background, summoned by a selection, a screenshot,
-> or a shortcut, anywhere in Windows. It answers in a slim panel beside your work, and it edits in
-> place where you were already working. When you want a full conversation, the same agent opens a
-> proper window.
+> **PERCH is your own AI. It runs in the background of your desktop, it knows who you are, and it
+> works inside whatever application you are already in.**
 >
-> **And because it sits above your applications rather than inside one, it is the only place your
-> personal context can live once and be used everywhere.**
+> You keep your other subscriptions for what they are individually good at. **PERCH is the one that
+> holds the memory** — including the memory you pull back out of those other tools — and it is the one
+> that does the everyday, generalised work: drafting, rewriting, explaining, answering, summarising,
+> looking things up, filling things in, wherever you are on the machine.
 
-**Companion:** [PERCH_REFERENCES.md](PERCH_REFERENCES.md).
+**Companions:**
+[PERCH_REFERENCES.md](PERCH_REFERENCES.md) — every paper, link and claim.
+[PERCH_OS_PRIMER.md](PERCH_OS_PRIMER.md) — how the OS layer works, from basics, and how OS + app + AI wire together.
+
+---
+
+## Document map
+
+| Part | Contents |
+|---|---|
+| **I** | Why this exists — and the one honest thing that changed after the literature check |
+| **II** | What the user actually gets, across all memory classes |
+| **III** | The memory model — six classes, open tags, storage format |
+| **IV** | ★ Retrieval: router, ranker, admission scorer, budget packer |
+| **V** | The OS surface — triggers, panel, edit in place |
+| **VI** | Tools — the full agentic surface |
+| **VII** | Execution — model routing, private mode |
+| **VIII** | ★ The complete pipeline, wired end to end |
+| **IX** | Build — stack, phases, team |
+| **X** | Evaluation |
+| **XI** | ★ Self-critique — the five weakest points, stated before the panel finds them |
+| **XII** | Risks |
 
 ---
 
 # PART I — WHY THIS EXISTS
 
-## 1.1 The real problem is not "which AI" — it is that your context is trapped
+## 1.1 The problem: your context is trapped per-vendor
 
-**Nobody uses one AI any more.**
+**Nobody uses one AI any more.** A typical user has ChatGPT for general questions and career advice,
+Claude Code or Copilot for programming, Perplexity for research, Gemini inside Docs.
 
-A typical user has ChatGPT for general questions and career advice, Claude Code or Copilot for
-programming, Perplexity for research, Gemini inside Docs, and AI features inside products like Canva.
 **Each one holds a separate, private memory of you, and none of them can see the others.**
-
-Verified market position:
 
 | Fact | |
 |---|---|
-| ChatGPT's assistant market share fell from **~60% (early 2025) to under 45% (Q1 2026)** | people are moving constantly |
-| A power user pays **$70–110/month** across ChatGPT Plus, Claude Pro, Gemini, and a coding assistant | fragmentation is expensive |
-| **Users lose 15–30 minutes of context every time they switch platforms** | fragmentation is slow |
-| *"Users are prioritizing **governance and data portability** over UI"* | ownership is now the deciding factor |
-| **Frontier models fall below 70% task completion when a task needs stateful reasoning about the user** | PAUSE, ACM SIGKDD 2026 |
+| ChatGPT's assistant market share fell from ~60% (early 2025) to under 45% (Q1 2026) | people move constantly |
+| A power user pays **$70–110/month** across four assistants | fragmentation is expensive |
+| Users lose **15–30 minutes** of context per platform switch | fragmentation is slow |
+| Frontier models fall **below 70% task completion** when a task needs stateful reasoning about the user | **PAUSE, ACM SIGKDD 2026** |
 
-**The concrete version of this, from a real workflow:**
+**The concrete version:** your college details and career context are in ChatGPT. Your final-year
+project — stack, bugs, decisions, timeline — is in Claude Code across dozens of sessions. Neither can
+see the other, so **you do the merge manually, in your head, every time.**
 
-> Your college details, your background and your career context are in **ChatGPT**.
-> Everything about your final-year project — the stack, the bugs, the decisions, the timeline — is in
-> **Claude Code**, spread across dozens of sessions.
-> **Neither can see the other.** So when you need to write a project summary for an application form,
-> neither one can do it. ChatGPT does not know the project. Claude Code does not know the form, and
-> its knowledge is scattered across sessions it will not surface unless you find the right one.
->
-> **You end up doing the merge manually, in your head, every time.**
+## 1.2 The thesis — corrected
 
-## 1.2 The thesis
+An earlier draft of this document said PERCH's adoption move was *"we emit a context block you paste
+into ChatGPT."*
 
-> **Stop asking which AI to use. Own the context, and let every AI use it.**
+> **That was wrong, and it defeats the purpose.** If the answer is "paste our block into their window,"
+> the user is still starting from scratch somewhere else, and PERCH is a clipboard utility.
 
-**This is not a preference — it is the published lesson from the category's most expensive failures.**
-Humane raised **$230M** and shipped fewer than 10,000 pins. Rabbit sold 100,000 R1s and took mass
-returns. The stated conclusion:
+**The corrected thesis:**
 
-> ### ***"AI doesn't need a new gadget — it needs to improve the tools you already use."***
+> ### PERCH is the assistant that is yours. It absorbs the memory stranded in the others, and it does the general work — everywhere on your machine, in the background, without you going anywhere.
 
-## 1.3 Why no existing company will build this
+You may still use Claude Code for a deep refactor or Perplexity for a literature sweep. **That is fine
+and expected** — those tools are better at those specific jobs. But:
 
-**A neutral context layer is against every incumbent's business model.**
+- **the memory lives in PERCH**, not in whichever window you happened to type it into
+- **the everyday work happens in PERCH**, because PERCH is already there, in the app you are in
+- **when you deliberately want to continue a specific thread elsewhere**, PERCH can hand that tool a
+  briefing. This is an escape hatch for a named situation — **it is not the product's reason to exist**,
+  and it is not on the first slide.
 
-OpenAI wants you inside ChatGPT. Google wants you inside Gemini. Microsoft wants you inside Copilot.
-Apple wants you on a Mac. **Highlight AI tried the neutral position, raised $50M, and pivoted to
-enterprise team tooling in March 2026.**
+## 1.3 What you actually wanted, and why it cannot be built
 
-> **A layer whose entire value is making *all* your AIs know you can only be built by someone with no
-> model to sell.** That is the structural reason this position is open, and why it stays open.
+> *"If there was a way dynamically, where all the AI agents through authentication and authorization of
+> one account could get memory of all the applications…"*
+
+**That is the correct design, and it will never ship.** There is no cross-vendor memory API, and there
+will not be one:
+
+1. **Memory is the moat.** It is the switching cost. OpenAI's memory of you is precisely what stops you
+   leaving. A vendor exposing it via API is funding its own churn.
+2. **No standard exists.** There is no OAuth-style "read my assistant memory" scope anywhere.
+3. **Liability.** Assistant memory contains health, financial and employment content. No vendor exports
+   it to a third-party binary on request.
+
+**So the bridge has to be something the vendors already ship for another reason. It is: the data export.**
+
+## 1.4 ★ Yes — this *can* use your existing subscriptions, in one specific way
+
+You asked me to check. The honest split:
+
+| | Possible? |
+|---|---|
+| Route PERCH's model calls **through** your ChatGPT Plus / Claude Pro subscription | **No.** Subscriptions cover the vendor's own client only. API access is separately billed with a separate key. There is no supported path, and unsupported ones violate ToS |
+| Pull **your conversation history** out of those subscriptions | **Yes — officially, on every major platform** |
+
+**Verified export paths (this is a feature of the subscription you already pay for):**
+
+| Platform | Route | Format |
+|---|---|---|
+| **ChatGPT** | Settings → Data Controls → Export data → emailed ZIP | `conversations.json` |
+| **Claude** | Settings → Privacy → request data export → emailed archive | JSON |
+| **Gemini** | `takeout.google.com` → deselect all → select Gemini → emailed archive | JSON / HTML |
+
+> **This is the mechanism.** Your subscription's export button is the legitimate, supported,
+> ToS-compliant bridge between a vendor's memory of you and your own. PERCH parses those archives
+> **locally**, extracts typed memory from them (§3), and from then on **that knowledge is yours** —
+> outside the tool that captured it, usable by whichever model you choose.
+
+**And it is a one-way valve in the right direction.** Everything flows into the thing you own.
+
+## 1.5 Why no incumbent builds this — and the two that came closest
+
+**A neutral personal context layer is against every model vendor's business model.** OpenAI wants you
+in ChatGPT, Google in Gemini, Microsoft in Copilot, Apple on a Mac.
+
+**Microsoft is the real objection, so state it first and honestly.** At Build 2026 Microsoft announced
+the **Windows AI Platform**: a Copilot Runtime, an AI Orchestrator, and a **Windows Semantic Index** —
+*"a personal semantic index encrypted with Windows Hello biometrics, enabling persistent agent memory
+and context"* — over a **Windows Agent Runtime**.
+
+> **That is our Layer 3, being built into the operating system. Pretending otherwise would be fatal in
+> a review.**
+
+**What it actually means for us — four things, all verifiable:**
+
+1. **It validates the architecture.** The OS vendor concluded that a personal semantic index with
+   persistent agent memory is the right shape. We are not arguing for an odd idea.
+2. **It is not shipped.** Copilot Runtime targets GA with **Windows 11 26H2**. Initial rollout targets
+   **24H2 Enterprise/Pro**, requiring VBS and SLAT. **Windows 11 Home is not the target.**
+3. **No third-party access is documented.** The Semantic Index serves Microsoft's own services. You
+   cannot point your own agent, or your own model, at it.
+4. **Microsoft's consumer AI record is a retreat.** They killed Copilot features and merged the Copilot
+   apps in **August 2026**; Recall was judged a failure after audits showed an admin-rights attacker
+   could exfiltrate the database. Nadella on the earlier hardware gating: *"We made a mistake by tying
+   the AI narrative to a hardware spec."*
+
+> **So: Microsoft is building a closed, edition-gated, unshipped, vendor-locked version of Layer 3 with
+> no model choice. We are building an open, portable, model-agnostic one that runs on Home edition
+> today.** That is a defensible position. "Nobody is doing this" is not, and is also false.
+
+**The other near-competitor left.** Highlight AI raised **$40M Series A in March 2026** (Khosla-led,
+CEO Sergei Sorokin, ex-Discord) to build *"the shared intelligence layer for the agentic age of work"* —
+an intelligent OS **for teams**, unifying activity across enterprise tools. Their stated product
+direction is now team and enterprise intelligence.
+
+⚠️ **Precision, because the panel will push:** I can verify the funding, the leadership and the stated
+enterprise repositioning. **I cannot verify that the individual-user product was discontinued** — so we
+say *"repositioned toward teams,"* not *"abandoned consumers."* Do not overstate this on a slide.
 
 ---
 
 # PART II — WHAT THE USER ACTUALLY GETS
 
-## 2.1 The adoption move: you do not have to leave anything
+## 2.1 The one-sentence product
 
-Every competitor says *"switch to us."* **PERCH says: keep everything you are paying for, and we will
-make all of it know who you are.**
+> **Select anything, anywhere in Windows. Press a key. Ask. The answer comes back knowing who you are —
+> and lands in the document you were already in.**
 
-PERCH can emit a **context block** — a compact, structured summary of the relevant parts of your
-memory — that you paste into ChatGPT, Claude, Cursor, or any assistant. **Now that assistant knows
-your project, your constraints, your writing style, without you retyping it.**
+## 2.2 Worked examples, one per memory class
 
-Nothing to give up, value on day one, and **the more AI tools you use, the more useful PERCH becomes.**
+You said the earlier examples were all "resume and application filling" — a thin application of AI, and
+all inside one class. **Here is one per class, with the reason PERCH beats opening another AI.**
 
-## 2.2 Memory that is built two ways
+### Identity — the class that is always on
 
-### (a) It accumulates, like every assistant's memory
-As you use PERCH, it retains what matters — the same behaviour as ChatGPT's or Gemini's memory.
+**Situation.** You are writing anything at all: an email, a comment, a message to a professor.
 
-### (b) ⭐ It imports what is stranded in your other AIs
+**Without PERCH.** Every assistant needs to be told, every session, that you are a final-year
+Computer Engineering student at a Pune college, that you write plainly and hate padding, that you want
+British spelling, that you never want an answer to open with "Certainly!".
 
-**This is the mechanism that solves §1.1, and it is the feature that makes people install it.**
+**With PERCH.** It is stored once. It is small enough to be in every prompt regardless of budget. The
+first draft is already in your voice.
 
-PERCH ships **extraction prompts**. You paste one into any assistant session that contains knowledge
-about you, and it returns a **structured block** you import into PERCH in one click.
+> **Why not just use ChatGPT's memory?** Because it is ChatGPT's. It does not apply when you are in
+> Claude, or in your IDE, or offline on a train.
 
-**The Project block, as the worked example:**
+### Academic — the class that makes coursework tractable
 
-```
-   name · one-line purpose · the problem it solves
-   stack, tools, versions
-   architecture and pipeline decisions — and why each was chosen
-   problems hit during design, and how each was resolved
-   timeline: what happened when
-   results, numbers, benchmarks achieved
-   what remains / known limitations
-```
+**Situation.** You are reading a paper PDF for a Deep Learning unit. You select a dense paragraph on
+batch normalisation and ask *"how does this connect to what we did in the optimisation unit?"*
 
-**Run it once at the end of a project inside Claude Code, and every one of those facts is now yours,
-permanently, outside that tool.**
+**Without PERCH.** The assistant does not know your syllabus, your semester, which topics your
+department actually covered, or your exam format. You describe all of it first — and again next week.
 
-### Where that pays off — four more worked examples
+**With PERCH.** Academic memory holds your institution, semester, subject list, unit breakdown and
+submission conventions, imported once. The answer is anchored to **your** course, not to a generic one.
 
-| Situation | Without PERCH | With PERCH |
-|---|---|---|
-| **Filling an application or scholarship form** — "describe a technical challenge you overcame in 200 words" | Open the coding AI, hunt for the right session, re-read it, summarise, rewrite to the word limit | Select the form field, ask. The project block already contains the challenge, the fix, and the result. It writes to the word limit in your tone |
-| **Updating a résumé** — a new bullet for the project | Recall the metrics, find where you recorded them, condense | Ask. The results and numbers are stored; it produces bullets and you pick one |
-| **An interviewer asks "walk me through a hard bug"** — you are preparing the night before | Scroll months of chat history across two tools | Ask PERCH for the three hardest problems across all your projects. It has them, because you imported them |
-| **Writing an email to a professor about your project** | Re-explain the project to the AI, then re-explain the tone you want | Trigger in the compose window. Project from domain memory, tone and college from identity memory. Draft is correct first time |
-| **Starting a new project that resembles an old one** | You remember there was a similar problem but not the solution | Ask. It surfaces the earlier decision and why you made it |
+> **Why better:** the context is reusable across every paper you will read this semester, and it works
+> in the PDF reader, not in a browser tab you have to switch to.
 
-> **The pattern in all five: the knowledge already existed — it was just locked in a session inside a
-> product that will never share it.**
+### Project — the class with the richest structure
 
-## 2.3 Six capabilities no chat window can offer
+**Situation.** A stack trace in your IDE. Select it, ask *"why is this happening?"*
 
-| # | Capability | Why only PERCH can do it |
-|---|---|---|
-| **1** | **Stack context across applications** — select a paragraph in a PDF, then a function in your IDE, then a cell in a spreadsheet, then ask one question about all three | A chat window only receives what you paste. Cross-application context requires OS-level presence |
-| **2** | **Answers land in place** (§4.3) | The answer replaces or follows your selection in the app you were already in |
-| **3** | **Explicit private mode** (§4.4) | Routes to a fully local model so the content never leaves the machine |
-| **4** | **Portable memory** — plain files you can export, edit or delete | The 2026 switching analysis found users now prioritise *"data portability"* |
-| **5** | **Works with no internet** | On a plane, in a college lab, on a restricted network. Every cloud assistant is a blank screen |
-| **6** | **Any model** — local, free cloud tier, or your own paid key | Model choice is against every vendor's interest, and free for us |
+**Without PERCH.** Paste the trace into a chat window, re-explain the architecture, re-explain which
+library versions you pinned and why, and hope you remember that you hit something similar in March.
+
+**With PERCH.** Project memory holds the stack, the architecture decisions **and the reason each was
+chosen**, the problems already solved and how, and the timeline. It can tell you *"this is the same
+async-context problem you hit on 14 March; you fixed it by moving the initialisation into the worker."*
+
+> **Why better:** the coding assistant that knew this has it buried in a session it will not surface.
+> PERCH imported it and can retrieve it by meaning.
+
+### Career — the class that spans years
+
+**Situation.** A recruiter emails. You are in the reply window.
+
+**Without PERCH.** Open an assistant, re-describe your projects, your skills, the roles you want, the
+tone you use with recruiters.
+
+**With PERCH.** Trigger in the compose window. Career memory supplies target roles and skills, Project
+memory supplies what you actually built, Identity supplies the tone. **Three classes, one draft, in the
+window you were already in.**
+
+### Health — the class that proves private mode matters
+
+**Situation.** A prescription changes. You want to prepare questions before the next appointment.
+
+**Without PERCH.** You would have to paste your medical history into a cloud assistant. Most people
+reasonably will not.
+
+**With PERCH.** Health memory is **private by default** (§7.3), so the request is answered by the local
+model and **zero bytes leave the machine.** It knows your conditions, current medications and known
+allergies, so it can flag an interaction worth asking about.
+
+> **Why better:** this is not a "better answer" argument, it is a *"this is the only version of this
+> that is acceptable to run at all"* argument. No cloud assistant can offer it.
+
+### Personal — the class that handles ordinary life
+
+**Situation.** Planning a trip with two friends. You select the itinerary draft and ask it to fix the
+budget split.
+
+**Without PERCH.** Re-explain who is coming, dietary constraints, the budget ceiling, who paid last time.
+
+**With PERCH.** Personal memory has it. **This is the class that makes PERCH a daily habit rather than a
+study tool** — and habit is what makes the other classes worth building.
+
+### ★ The cross-class case — the one no other AI can do
+
+**Situation.** Writing a statement of purpose for a postgraduate application.
+
+**This single task needs Identity (voice, background) + Academic (institution, coursework, grades) +
+Project (what you built and why it was hard) + Career (what you want next).**
+
+> **No other assistant has all four, because no other assistant is allowed to.** ChatGPT has some of it,
+> Claude Code has a different part, and neither will give it to the other. **PERCH is the only place
+> those four can sit in one index — and the routing to combine them is Part IV.**
+
+## 2.3 What PERCH is, functionally
+
+It is a **general-purpose agent**, not a text-rewriter with a memory bolt-on. It has the full tool
+surface of a modern agent (Part VI): web search and fetch, file and document reading, OCR, code
+execution, memory operations, application control. **The memory and the OS surface are what make it
+yours; the tools are what make it useful.**
 
 ---
 
-# PART III — HOW THE OS INTEGRATION ACTUALLY WORKS
+# PART III — THE MEMORY MODEL
 
-**This section exists because it is the part of the project nobody on the team has built before. Every
-mechanism below is a documented Windows API with an existing Rust binding. Nothing here is speculative.**
+## 3.1 Design rule: few classes, many tags
 
-## 3.1 The three triggers
+You warned that too many categories jumble things. **You are right, and there is a principled reason.**
 
-### T1 — Global hotkey
+> **A class is a routing decision. Every class you add is another chance for the router to be wrong —
+> and router error is the exact failure we are trying to eliminate.** Fine distinctions therefore belong
+> in *tags*, which only refine ranking **inside** an already-chosen class and cannot cause a routing miss.
+
+| | Classes | Tags |
+|---|---|---|
+| Set | **closed — six** | open, user- and extractor-generated |
+| Purpose | routing + privacy + admission floors | ranking refinement within a class |
+| Cost of error | **high** — wrong class means wrong context or none | low — a bad tag slightly reorders results |
+
+## 3.2 The six classes
+
+| Class | Holds | Default sensitivity |
+|---|---|---|
+| **Identity** | name, role, institution, languages, writing voice, standing instructions | normal |
+| **Project** | bounded work: purpose, stack, architecture decisions + rationale, problems + fixes, timeline, results, open items | normal |
+| **Academic** | institution, semester, subjects, unit breakdown, formats, deadlines, grading conventions | normal |
+| **Career** | roles held, skills, applications, interviews, targets, employer constraints | normal |
+| **Health** | conditions, medications, allergies, appointments, reports | **private** |
+| **Personal** | relationships, preferences, finances, travel, home, commitments | **private** |
+
+**Plus two system stores, not user classes:**
+
+| Store | Written by | Purpose |
+|---|---|---|
+| **Episodic** | the system | past PERCH conversations and their outcomes |
+| **Working** | the system | the current session only |
+
+**Why exactly these six.** They partition by *how the knowledge is used and how sensitive it is*, which
+is what routing and privacy need — not by subject matter, which is what tags are for. Splitting
+Academic into "courses / exams / labs" would add three routing errors and zero retrieval benefit,
+because within Academic the ranker already separates them.
+
+## 3.3 The item schema
+
+Every memory item is **one Markdown file with YAML frontmatter.**
+
+```markdown
+---
+id: prj-perch-0007
+class: project
+title: PERCH selection capture falls back to clipboard
+tags: [perch, windows, uiautomation, clipboard, os-layer]
+entities: [PERCH, UI Automation, Win32]
+sensitivity: normal
+source: {kind: import, platform: claude, session: 2026-08-14, confidence: 0.9}
+created: 2026-08-14
+updated: 2026-08-16
+uses: 4
+---
+
+UI Automation cannot read the selection in every application — Electron apps and some
+custom controls do not implement TextPattern. The fallback is a clipboard round-trip:
+save the clipboard, send Ctrl+C, read, restore. Decided 14 Aug 2026 after testing.
 ```
-   Win32 RegisterHotKey  →  system-wide, works regardless of which app has focus
-   Rust:  tauri-plugin-global-shortcut  (first-party Tauri v2 plugin)
+
+**Why Markdown + frontmatter, and not a database row or a bare vector store:**
+
+| Requirement | Why this format |
+|---|---|
+| *"Memory you cannot read is memory you cannot trust"* | it is a text file. Open it, edit it, delete it |
+| Portability — the thing users now optimise for | a folder you can zip, sync or `git init` |
+| Retrieval | frontmatter gives **exact filters** (class, tags, dates); the body gives **semantic** matching |
+| Scale | the vector index is a **derived artefact** in SQLite. Delete it and it rebuilds. The files are the truth |
+
+**Retrieval unit = one item = one file.** A project is not one enormous file: each decision, problem or
+result is its own item, linked by shared tags. **This is what keeps items small enough to enter a prompt
+whole** (§4.5).
+
+## 3.4 Write-side gating — how we keep memory from bloating
+
+> *"We can't overload the memory as well to scale it."*
+
+**Correct, and this is a named open problem, not a detail.** *Personalize-then-Store* (KAIST, 2026)
+shows universal static storage policies waste the memory budget on transient interactions while losing
+what matters, and proposes **session-level storage gating**. They also report honestly that accurate
+gating *remains an open challenge*.
+
+**Our policy — three rules, deliberately conservative:**
+
+1. **Nothing is stored silently from ordinary chat.** Identity, Project, Academic, Career, Health and
+   Personal items are created by **import** or **explicit user action**. Episodic is separate and capped.
+2. **On import, extraction is gated.** The extractor proposes items; **the user reviews and accepts** in
+   a single screen. Rejected items are not stored.
+3. **Near-duplicates merge, they do not accumulate.** On write, if cosine similarity to an existing item
+   in the same class exceeds 0.92, PERCH proposes an **update** to that item rather than a new one.
+
+**Caps, enforced:** per-class item ceilings, Episodic capped by age and count, and a *"never stored"*
+list the user controls. **Memory growth is bounded by design, not by hope.**
+
+## 3.5 Import — the three paths
+
+| Path | When | How |
+|---|---|---|
+| **1. Platform export** ★ | primary. You have history in ChatGPT / Claude / Gemini | drop the export archive in. PERCH parses it **locally**, segments sessions, runs class-typed extraction, and presents proposed items for review |
+| **2. Live** | as you use PERCH | you tell it something and mark it worth keeping |
+| **3. Extraction prompt** | one specific session, or a platform with no export | paste a class-specific prompt into that session; paste the structured block back |
+
+### The extraction prompts — one general contract, six class schemas
+
+You asked whether it should be one prompt or many. **Both, in a specific arrangement:**
+
+> **One prompt *contract* — a fixed output format that the importer can parse — with a per-class
+> *schema* selected by the user before extraction.**
+
+One prompt is too vague: ask "extract what matters about me" and you get prose that cannot be typed,
+tagged or gated. Six unrelated prompts is unmaintainable and produces six incompatible formats.
+
+**The contract (identical for all six):** return a YAML list of items, each with `class`, `title`,
+`tags`, `body`, `confidence`, and nothing else. **The schema (per class)** tells it what fields the
+body must cover:
+
+| Class | The body must cover |
+|---|---|
+| **Identity** | role, institution, languages, stated writing preferences, standing instructions |
+| **Project** | purpose · stack and versions · architecture decisions **and the reason for each** · problems hit **and how each was resolved** · timeline · results and numbers · open items |
+| **Academic** | institution · semester · subjects and units · assessment format · conventions · deadlines |
+| **Career** | roles · skills · applications and their outcomes · interview experiences · targets |
+| **Health** | conditions · medications and dosages · allergies · appointments · reports |
+| **Personal** | people and relationships · preferences and constraints · commitments · finances · travel |
+
+**The user picks the class before importing**, which is what makes the item typed rather than guessed —
+and typing at the source is what makes admission auditable in §4.4.
+
+---
+
+# PART IV — ★ RETRIEVAL: ROUTER, RANKER, ADMISSION SCORER, PACKER
+
+**This is the technical core, and it is built around the failure you identified.**
+
+## 4.1 The failure you described, named properly
+
+> *"If it's medical related but there was nothing related to medical in the memory — just a mention of
+> a medical college — it shouldn't just add up college details. It should see what in medical."*
+
+**You independently identified a problem the 2026 literature has named and measured.**
+
+- **Cross-domain leakage** — *Beyond Similarity: Trustworthy Memory Search for Personal AI Agents*
+  (2026) defines exactly this: a memory unit *"satisfies the semantic ranking criteria but violates
+  contextual admissibility."* Their measured leakage rate before mitigation: **27.0%**.
+- **Over-personalisation / irrelevance** — **OP-Bench** (2026) measures *"injecting personal references
+  when queries don't warrant personalization"* and finds systems **retrieve at ~80% similarity even in
+  deliberately baited cases**, attend to memory tokens **2× more than to the user's own query**, and
+  that memory-augmented methods score **26.2–61.1% worse** than memory-free baselines on this axis.
+
+> **The single most important number in our evidence base:** naive memory injection makes an assistant
+> *worse*, by up to 61%, than having no memory at all. **Retrieval that does not know when to stay quiet
+> is a liability, not a feature.**
+
+**Honest prior art, stated up front:** MemGate solves this with a *learned* query-conditioned neural
+gate over frozen embeddings. CRAG uses a retrieval evaluator with a relevance threshold and corrective
+action. Self-RAG trains reflection tokens to decide when to retrieve at all. **We did not invent
+gating and will not claim to.** §4.6 states precisely what is ours.
+
+## 4.2 The pipeline
+
 ```
-The simplest of the three, and the reliable fallback for everything else.
-
-### T2 — Read the current selection *(the hard one, so it has two paths)*
-
-**Path A — UI Automation (preferred, clean):**
-```
-   IUIAutomation::GetFocusedElement()      → the control the user is typing/reading in
-   → GetCurrentPattern(TextPattern)        → if the control exposes text
-   → GetSelection()                        → the selected range
-   → range.GetText()                       → the actual string
-```
-Windows UI Automation is *"an accessibility framework... which provides programmatic access to most
-user interface elements on the desktop."* It exists so screen readers can do exactly this.
-**Rust binding: the `uiautomation` crate** on crates.io (wraps the Windows UIAutomation COM API, with
-process, dialog, event and clipboard support), or Microsoft's official `windows` crate.
-
-**Path B — clipboard round-trip (universal fallback):**
-```
-   1. save the user's current clipboard contents
-   2. SendInput  Ctrl+C  to the focused window
-   3. read the clipboard  →  this is the selection
-   4. restore the user's original clipboard
-```
-Less elegant, works essentially everywhere — including apps that do not implement TextPattern.
-
-> **Design rule: try Path A, fall back to Path B, and log which one worked per application.**
-> That per-app coverage table is a real deliverable — no competitor publishes one.
-
-### T3 — Screenshot
-```
-   overlay a transparent full-screen window  →  user drags a region
-   →  BitBlt / Windows.Graphics.Capture  →  PNG in memory
-   →  optional OCR to text
-```
-Same mechanism every screenshot tool uses.
-
-## 3.2 Placing the panel beside your work
-
-```
-   GetForegroundWindow()   → handle of the app the user is in
-   GetWindowRect(hwnd)     → its position and size on screen
-   → compute a slot to the right (or left, if there is no room)
-   → show PERCH's window there, always-on-top, without stealing focus
+   question + selection + source app
+        │
+   (1)  INTENT          what is being asked, in what domain, at what scope
+        │
+   (2)  CLASS ROUTER    which of the six classes are even eligible
+        │
+   (3)  RETRIEVE        over-fetch top-N per eligible class (semantic + tag filter)
+        │
+   (4)  RANKER          order candidates by usefulness to THIS question
+        │
+   (5)  ADMISSION       ★ absolute floor per class + margin test  →  or admit nothing
+        │
+   (6)  PACKER          whole items, priority order, until the budget is spent
+        │
+   (7)  DECLARE         every injected item is listed in the panel
 ```
 
-**Tauri v2 supports this directly** — `alwaysOnTop`, `skipTaskbar`, `transparent`, multi-window and
-system tray are configuration flags, not workarounds. Transparency enables non-rectangular shapes and
-rounded corners. A published 2026 write-up (*"Why I Chose Tauri v2 for a Desktop Overlay"*) confirms
-the pattern, including polling the cursor and toggling `setIgnoreCursorEvents` so the transparent
-region stays click-through while the panel itself remains interactive.
+## 4.3 Steps 1–4: route, retrieve, rank
 
-**Not stealing focus is the critical detail.** If the panel takes focus, the host application loses its
-selection and the whole interaction breaks. The window is created non-activating.
+**(1) Intent.** A small, cheap step: classify the request into a **domain** (which classes could
+plausibly help) and a **scope** (does this need memory at all?). *"Rewrite this sentence to be shorter"*
+needs Identity for voice and nothing else. **A large fraction of requests need almost no memory, and
+recognising that early is most of the win.**
 
-## 3.3 ⭐ Edit in place — how the answer gets back
+**(2) Class router.** Produces an eligibility set, not a single class. Multi-class is normal — the SOP
+example needs four. Routing uses the intent, the **source application** (a `.py` file in an IDE raises
+Project; a PDF in a course folder raises Academic), and tag overlap.
 
-**This is the capability that separates PERCH from a chat window, so the mechanism matters.**
+**(3) Retrieval.** Within eligible classes only: exact frontmatter filters first, then semantic top-N
+with deliberate over-fetch (N ≈ 30), because the ranker and the gate need candidates to reject.
+
+**(4) Ranker.** Orders candidates by usefulness to this specific question. Signals:
+
+| Signal | What it contributes |
+|---|---|
+| Semantic similarity to question **and** selection | the base |
+| **Tag overlap** with the resolved intent | the refinement your class/tag split enables |
+| Entity match | "PERCH", "DPDP Act", a person's name |
+| Recency and use count | recent, repeatedly useful items rank higher |
+| Class prior | Identity is cheap and near-always useful; Personal rarely helps a stack trace |
+
+> **The ranker's output is an ORDER. An order says nothing about whether the best item is any good.**
+> That is the whole point of step 5, and it is the step most systems skip.
+
+## 4.4 ★ Step 5 — the admission scorer
+
+**The principle, in one line:**
+
+> ### Ranking is relative. Injection must be absolute.
+
+**The mechanism:**
 
 ```
-   User selects an awkward sentence in an email  →  triggers PERCH  →  "make this more formal"
-   →  answer generated
-   →  user presses Enter (or clicks "Replace")
+   for each eligible class c:
+       s_max(c) = score of the best candidate in c
 
+       if s_max(c) < τ_c :
+            class c contributes NOTHING            ← not "the best of a bad lot"
+       else:
+            admit items where  s ≥ τ_c   AND   s ≥ α · s_max(c)
+                                └ absolute floor    └ margin test, kills the long tail
+
+   if no class is admitted:
+       ABSTAIN — answer from general knowledge, and say so in the panel
+```
+
+**Two thresholds, two different jobs:**
+
+- **τ_c — the absolute floor, per class.** Calibrated per class because classes differ in how tightly
+  they cluster. Health items are specific and cluster tightly, so τ is high. Identity is broad and
+  should be admitted easily, so τ is low.
+- **α — the margin.** Even inside an admitted class, an item scoring far below that class's best is
+  filler. Filler is what burns budget and causes the 2× memory-attention distortion OP-Bench measured.
+
+**Your medical example, traced:**
+
+| Step | What happens |
+|---|---|
+| Intent | domain = health, scope = needs memory |
+| Router | Health eligible; Academic weakly eligible on the token "medical" |
+| Retrieve | Health returns nothing. Academic returns *"B.E. Computer Engineering, PES Modern College"* |
+| Ranker | that Academic item is now **rank 1** — it is the best of what exists |
+| **Admission** | its score is **below τ_academic for a health-domain query**. **Academic contributes nothing** |
+| Result | **abstain.** PERCH answers from general medical knowledge and states: *"no stored health context matched."* |
+
+> **A naive system injects the college. Ours says it has nothing — and saying so is the correct answer.**
+
+**Abstention is measurable, not a slogan.** LongMemEval tests abstention as one of its five abilities,
+and OP-Bench's irrelevance category measures precisely the injection this prevents. **We can put a
+number on it.**
+
+## 4.5 Step 6 — the budget packer
+
+```
+   budget = context_window(model) − reserve(response) − reserve(system) − reserve(tools)
+
+   fill order:
+     1. system + Identity          small, always
+     2. the selection              always — it is why the user summoned us
+     3. recent conversation        oldest turns truncated first
+     4. admitted memory            ← in ranker order, into whatever remains
+     5. tool results               claimed from the same allowance when a tool runs
+```
+
+**Items enter whole or not at all.** Half a project decision is worse than none — it reads as a
+confident, incomplete fact.
+
+> **This is what makes model choice real.** Swap Qwen3 4B for a frontier API and the budget recomputes.
+> Nothing else in the system changes. **The same memory layer serves a 3 GB local model and a 200K-token
+> frontier model — that is the point, and it is Contribution 1.**
+
+**Why this is not a solved problem:** the 2026 survey *Externalization in LLM Agents* states that the
+context window *"remains the scarcest shared resource"*, with memory, skills, tool schemas and reasoning
+traces all competing for one finite budget — *"a harness-level coordination problem."* **It names the
+problem. It does not solve it for the local-to-frontier span.**
+
+## 4.6 What is genuinely ours — stated precisely
+
+| | |
+|---|---|
+| **We do not claim** | inventing memory gating (**MemGate**), relevance thresholds (**CRAG**), retrieve-or-not decisions (**Self-RAG**), agent memory (**Mem0, Zep, Letta**), or OS-level personal indexes (**Microsoft's Windows Semantic Index**) |
+| **C1 — budget-aware assembly across heterogeneous models** | the same memory layer serving a 4B local model and a frontier API, with an ablation at three model sizes. Named as an open coordination problem by the 2026 survey; unsolved for this span |
+| **C2 — *declarative* admission on a user-owned type system** | MemGate's gate is **learned** from embeddings and cannot explain a rejection. Ours is **typed at the source** — the class is assigned at import, the floor is per class, and every drop is auditable. **The same type system also drives privacy routing (§7.3)** — one primitive, two jobs |
+| **C3 — import from official platform exports** | the only ToS-legitimate cross-vendor bridge, with class-typed extraction and human review |
+| **C4 — the OS surface** | not a research claim; it is the product, and it is already built (§5, Phase 0) |
+
+> **C2's defensible sentence:** *a learned gate cannot tell you why it dropped your memory; a typed floor
+> can, and a personal agent has to be able to.*
+
+---
+
+# PART V — THE OS SURFACE
+
+**Full detail, from basics, is in [PERCH_OS_PRIMER.md](PERCH_OS_PRIMER.md).** Summary here.
+
+## 5.1 Three triggers
+
+| | Mechanism |
+|---|---|
+| **T1 — hotkey** | Win32 `RegisterHotKey` + message loop. System-wide, focus-independent |
+| **T2 — selection** | **Path A:** UI Automation — `GetFocusedElement` → `TextPattern` → `GetSelection` → `GetText`. **Path B:** clipboard round-trip — save, `Ctrl+C`, read, restore. Try A, fall back to B, **log which worked per app** |
+| **T3 — region** | transparent full-screen overlay → drag → capture → optional OCR |
+
+## 5.2 One surface, two sizes
+
+You are right that this should not be framed as two products.
+
+> **The panel is the product.** It is where PERCH lives: beside your work, sized not to occlude it,
+> dismissed with Escape. **A short question never opens a window.**
+>
+> **The full view is the same panel, expanded** — for long sessions, history and memory editing. Same
+> agent, same memory, same conversation, carried over unchanged. It is a *size*, not a *destination*.
+
+**Placement:** `GetForegroundWindow` → `GetWindowRect` → dock right, else left, else screen edge.
+Always-on-top, **non-activating** — if the panel steals focus, the host loses the selection and the
+whole interaction breaks.
+
+**Interaction rule:** a selection is **tagged as context, not converted into a command.** Highlight and
+Click to Do give a fixed menu (summarise / translate / explain). **PERCH attaches the selection and lets
+you type any prompt**, including one unrelated to it.
+
+## 5.3 Edit in place
+
+```
    1. put the answer on the clipboard
-   2. restore focus to the original window   (we saved its HWND at trigger time)
-   3. SendInput  Ctrl+V                       → the selection is replaced, because it is still selected
-   4. restore the user's previous clipboard contents
+   2. restore focus to the original window   (HWND saved at trigger time)
+   3. SendInput Ctrl+V   → the selection is replaced, because it is still selected
+   4. restore the user's previous clipboard
 ```
 
-**Why replacement works without any app-specific integration:** in every text editor on Windows, typing
-or pasting while text is selected *replaces* that text. We are not writing an Outlook plugin, a Word
-plugin, and a VS Code plugin. **We are using the behaviour every text field already has.**
-
-**Three actions, user's choice:**
-| Action | Effect |
-|---|---|
-| **Replace** | overwrite the selection with the answer |
-| **Insert after** | leave the original, append below |
-| **Copy only** | put it on the clipboard, change nothing |
-
-**Rejected alternative — per-application plugins.** An Office add-in, a VS Code extension, a browser
-extension. Better fidelity, but it means N integrations, N review processes, and it only ever works in
-the apps we shipped for. **The clipboard path works in everything on day one.**
-
-## 3.4 Feasibility summary — what is proven vs what is work
-
-| Mechanism | Status |
-|---|---|
-| Global hotkey | ✅ first-party Tauri plugin |
-| Foreground window rect / positioning | ✅ basic Win32 |
-| Always-on-top, transparent, non-activating panel | ✅ Tauri v2 config |
-| Clipboard round-trip for selection | ✅ standard, universal |
-| UI Automation selection read | ✅ `uiautomation` crate — **coverage varies by app, which is why Path B exists** |
-| Paste-back / replace | ✅ same clipboard mechanism, reversed |
-| Region screenshot | ✅ standard |
-
-> **Nothing in Layer 1 requires a driver, a kernel hook, an OS modification, or a special permission.
-> It is the same API surface screen readers and RPA tools have used for twenty years.**
+**Why no per-app plugin is needed:** in every Windows text field, pasting while text is selected
+*replaces* it. Actions: **Replace · Insert after · Copy only**. If Windows refuses the focus change we
+**do not paste** — landing in the wrong window is worse than not pasting.
 
 ---
 
-# PART IV — THE SYSTEM
+# PART VI — TOOLS
 
-## 4.1 Four layers
+**You asked for the full agentic surface. Here it is.** Tools are declared to the model only when it
+supports tool calling, and every schema is charged against the same budget as memory (§4.5).
 
-```
-   ┌─────────────────────────────────────────────────────────────┐
-   │  L1  SURFACE      capture · summon · present · edit in place│
-   ├─────────────────────────────────────────────────────────────┤
-   │  L2  CONTEXT      assemble the prompt within a token budget │
-   ├─────────────────────────────────────────────────────────────┤
-   │  L3  MEMORY       store · organise · retrieve what is yours │
-   ├─────────────────────────────────────────────────────────────┤
-   │  L4  EXECUTION    route to the chosen model · tools · stream│
-   └─────────────────────────────────────────────────────────────┘
-```
-
-**L2 and L3 are the AI/ML core.** L1 is what the panel sees. L4 is what makes it free.
-
-## 4.2 Two surfaces, one agent
-
-| Surface | When |
+| Group | Tools |
 |---|---|
-| **Slim side panel** | the default. Beside your work, sized not to occlude it, dismissed with Escape |
-| **Full window** | normal chat, session history, memory editing, settings. Same agent, same memory |
+| **Knowledge** | `web_search` · `web_fetch` — mandatory, because a local 4B model has no idea what happened last month |
+| **Memory** | `memory_search` · `memory_write` · `memory_update` · `memory_forget` · `memory_list_classes` |
+| **Files** | `file_read` · `file_write` · `dir_list` · `file_search` — scoped to user-declared roots only |
+| **Documents** | `doc_parse` (PDF / DOCX / XLSX / PPTX → text) · `ocr_image` |
+| **Screen & OS** | `capture_region` · `read_selection` · `active_window` · `clipboard_read` · `clipboard_write` · `paste_into` |
+| **Applications** | `open_path` · `open_url` · `focus_window` |
+| **Compute** | `run_python` — sandboxed, no network, for arithmetic, dates, data munging |
+| **Vision** | `describe_image` — when a vision-capable model is selected |
+| **Deferred to v2, named as such** | calendar read, email read, shell execution, app automation |
 
-**A short question never opens a window. A long session gets a proper one.** The panel has an *expand*
-control that carries the conversation into the full window unchanged.
+**Tool safety policy — three rules:**
 
-**Critical interaction rule:** a selection is **tagged as context, not converted into a command.**
-Highlight and Windows "Click to Do" give you a fixed menu — *summarize / translate / explain*.
-**PERCH attaches the selection and lets you type any prompt**, including one unrelated to the selection.
+1. **Read is free; write asks.** Anything that changes state outside PERCH (`file_write`, `paste_into`,
+   `open_url`) shows what it will do and waits.
+2. **Every tool call is logged**, visible in the panel, and attributable to a request.
+3. **Private mode restricts the tool set.** `web_search` and `web_fetch` are disabled — a tool call is
+   an exfiltration path, and a private-mode guarantee that leaks through a search query is worthless.
 
-## 4.3 Layer 2 — Context assembly *(ML core, part 1)*
+---
 
-**The job:** given a question, a selection, and everything known about the user, decide **what actually
-enters the prompt**, under a hard ceiling set by the chosen model.
+# PART VII — EXECUTION
 
-```
-   budget = context_window(model) − reserve(response) − reserve(system)
+## 7.1 Model registry
 
-   Priority order:
-     1. system + persona          small, always
-     2. the selection             always — it is why the user summoned us
-     3. current conversation      recent turns, oldest truncated first
-     4. retrieved memory          ← whatever remains
-     5. tool results              claimed from (4) when a tool runs
-```
+Each entry: provider · endpoint · model id · **context window** · tool support · vision support · local
+flag. **Everything upstream reads `context_window` from here** — that single field is what makes Layer 2
+model-agnostic.
 
-**Memory items enter whole or not at all** — half a project description is worse than none.
-
-> **This is what makes model choice possible.** Swap from a local Qwen3 4B to a frontier API and the
-> budget recomputes; nothing else changes. The same memory layer serves both.
-
-**Relevance uses three signals:** semantic similarity to the query and selection; **structural match**
-(a project block is relevant to a coding question, not to a leave email); and recency/use.
-
-**Rejected alternative — always inject the whole profile.** It burns the budget and produces answers
-that awkwardly restate your job title when you asked about a bug.
-
-## 4.4 ⭐ Private mode — declared, never inferred
-
-**You are right that classification is the wrong answer here.** Deciding what is "private" from the
-content itself means a classifier with a false-negative cost of *leaking a company secret to a cloud
-API*. **No accuracy figure makes that acceptable, and we are not going to pretend otherwise.**
-
-**PERCH does not guess. Privacy is a user-declared policy, in three forms:**
-
-| Mechanism | How it works |
-|---|---|
-| **1. Per-request toggle** | The panel has a **Private** switch. Flip it, and the request goes to the local model. Visible before you send, on every request |
-| **2. Source rules** *(the useful one)* | You declare a **source** private once: *"anything from this application is private"*, *"anything from this folder is private"*, *"anything from this window title pattern is private"*. PERCH knows the source app and document at capture time — **it doesn't need to understand the text, only where it came from.** Deterministic, auditable, no model involved |
-| **3. Global default** | Set local as the default and escalate to cloud explicitly. For anyone handling regulated data, this is the only sane setting |
-
-**Where this actually matters:**
-- Your employer's codebase — you may be contractually barred from pasting it into a cloud service
-- An unpublished thesis or paper under review
-- Anything under NDA
-- Medical, financial, or legal documents belonging to someone else
-- Your own credentials and configuration files
-
-**The demonstrable claim:** in private mode, **zero bytes leave the machine** — provable with a packet
-capture, which is a better privacy demonstration than any policy page.
-
-> **Not a hidden classifier. A visible switch and a rule you wrote.** That is defensible to a panel
-> and, more importantly, to a user deciding whether to trust it.
-
-## 4.5 Layer 3 — Memory *(ML core, part 2)*
-
-| Kind | Contents | Written by |
-|---|---|---|
-| **Identity** | who you are, background, how you want answers written | **you** |
-| **Domain** | projects, courses, ongoing work — the structured blocks | **you, via extraction prompts** |
-| **Episodic** | past conversations and their outcomes | the system |
-| **Working** | this session | the system |
-
-```
-   Store:     text  +  category  +  embedding  +  timestamps  +  use count
-   Index:     local vector index (small local embedding model)
-   Retrieve:  category filter → semantic top-k → recency/use rerank → budget-aware selection
-   Persist:   SQLite + plain files. No server
-```
-
-**Every memory item is a file you can open, edit or delete. Memory you cannot read is memory you
-cannot trust** — and after Recall, that is not a slogan.
-
-**Categories beyond projects:** academic (institution, year, formatting conventions), writing style
-(tone, length, things you never want written), professional, accessibility constraints, and
-**user-defined categories with user-defined schemas** — the extensibility point.
-
-## 4.6 Layer 4 — Execution
-
-**Model registry**, holding for each entry: provider, endpoint, model id, **context window**, tool
-support, and whether it is local. Everything upstream reads `context_window` from here.
+## 7.2 Routes
 
 | Route | Cost |
 |---|---|
-| **Ollama, local** | free, no rate limit on `localhost:11434` |
+| **Ollama, local** | free, no rate limit on `localhost:11434`. Qwen3 4B ≈ 3 GB, Qwen3 8B ≈ 5–6 GB (Q4) |
 | **NVIDIA NIM** | free key, no card, 100+ models, ~40 req/min |
-| **Your own API key** | whatever you already pay |
+| **Your own key / OpenRouter BYOK** | whatever you already pay |
 
-⚠️ **Automatic adaptive routing is explicitly v2.** The user chooses; switching is one click.
+⚠️ **Automatic adaptive routing is v2.** The user chooses; switching is one click.
 
-**Tools:** web search and fetch (a local 4B model has no idea what happened last month), local file
-read, OCR, clipboard write — declared only when the selected model supports tool calling, and charged
-against the same budget.
+## 7.3 Private mode — declared, never inferred
+
+**Content classification is the wrong answer here.** A classifier whose false negative leaks a company
+secret to a cloud API is unacceptable at any accuracy figure.
+
+| Mechanism | How |
+|---|---|
+| **1. Per-request toggle** | a **Private** switch on the panel, visible before you send |
+| **2. Source rules** ★ | declare a source private once: *this application*, *this folder*, *this window-title pattern*. **PERCH knows the source at capture time — it never needs to understand the text, only where it came from.** Deterministic, auditable, no model |
+| **3. Global default** | local by default, escalate to cloud explicitly |
+
+**Plus a fourth, free from Part III:** **the Health and Personal classes are private by default.** The
+type system already knows which memory is sensitive, so **any request that admits a Health or Personal
+item is forced local automatically** — with the panel saying why.
+
+> **In private mode, zero bytes leave the machine — provable with a packet capture.**
 
 ---
 
-# PART V — BUILD
+# PART VIII — ★ THE COMPLETE PIPELINE
 
-## 5.1 Stack
+**One request, end to end, with every component named.**
+
+```
+ ┌─ L1  SURFACE ──────────────────────────────────────────────────────────────┐
+ │  hotkey (RegisterHotKey)                                                   │
+ │      → snapshot host window   GetForegroundWindow + GetWindowRect + HWND   │
+ │      → capture selection      UIA TextPattern  ▸ fallback clipboard        │
+ │      → panel opens beside the host, non-activating                         │
+ │      → user types the question                                             │
+ └────────────────────────────────────────────────────────────────────────────┘
+                │  question · selection · source app · document path
+                ▼
+ ┌─ L2  CONTEXT ──────────────────────────────────────────────────────────────┐
+ │  intent      → domain + scope + "does this need memory at all?"            │
+ │  privacy     → source rules · toggle · global default        ──────────┐   │
+ │  class route → eligible classes                                        │   │
+ └────────────────────────────────────────────────────────────────────────│───┘
+                │                                                         │
+                ▼                                                         │
+ ┌─ L3  MEMORY ───────────────────────────────────────────────────────────│───┐
+ │  filter (frontmatter: class, tags, dates)                              │   │
+ │      → semantic top-N over-fetch (SQLite + vector index)               │   │
+ │      → RANKER      similarity · tags · entities · recency · class prior│   │
+ │      → ADMISSION   τ_c floor + α margin  →  admitted set, or nothing   │   │
+ │      → if a Health/Personal item is admitted ─── force local ──────────┘   │
+ └────────────────────────────────────────────────────────────────────────────┘
+                │  admitted items (possibly empty → abstain)
+                ▼
+ ┌─ L2  PACKER ───────────────────────────────────────────────────────────────┐
+ │  budget = ctx(model) − response − system − tool schemas                    │
+ │  fill: system+Identity ▸ selection ▸ conversation ▸ memory ▸ tool results   │
+ │  whole items only                                                          │
+ └────────────────────────────────────────────────────────────────────────────┘
+                │  assembled prompt
+                ▼
+ ┌─ L4  EXECUTION ────────────────────────────────────────────────────────────┐
+ │  registry → route  (local ▸ free tier ▸ own key;  private ⇒ always local)   │
+ │  stream ⇄ tool loop  (web · files · docs · OCR · python · memory · OS)      │
+ └────────────────────────────────────────────────────────────────────────────┘
+                │  answer + provenance + tool log
+                ▼
+ ┌─ L1  RETURN ───────────────────────────────────────────────────────────────┐
+ │  panel shows: answer · which memory items were used · which were dropped   │
+ │               and why · which model answered · private or not              │
+ │  Replace ▸ Insert after ▸ Copy   → clipboard → refocus HWND → Ctrl+V        │
+ │  Episodic write (capped)  ·  memory proposal only if the user asks         │
+ └────────────────────────────────────────────────────────────────────────────┘
+```
+
+**The two loops that make it an agent, not a template:**
+
+- **Tool loop** (L4): model → tool call → result → model, until it stops. Each result re-enters the
+  budget, and the packer may evict low-ranked memory to make room. **Tools and memory compete for one
+  budget — that is exactly the coordination problem C1 addresses.**
+- **Memory loop** (L3): `memory_search` is *also* a tool. If the packer admitted nothing but the model
+  decides it needs something, it can ask — with the admission gate still applied.
+
+---
+
+# PART IX — BUILD
+
+## 9.1 Stack
 
 | Layer | Choice | Why |
 |---|---|---|
-| Shell | **Tauri v2** | **30–50 MB idle vs Electron's 150–300 MB.** For an always-running background app this decides whether people keep it |
+| Shell | **Tauri v2** | 30–50 MB idle vs Electron's 150–300 MB; installer <10 MB vs >100 MB. PERCH is always running |
 | Core | **Rust** | hotkeys, UI Automation, clipboard, window management, tray |
-| UI | React + TypeScript | fast iteration on the surface, which is what gets judged |
-| AI/ML | **Python sidecar** | embeddings, retrieval, budget assembly — the ML work, in the language the team knows |
-| Storage | SQLite + files | no server, inspectable, portable |
+| UI | React + TypeScript | fast iteration on the surface |
+| AI/ML | **Python sidecar** | embeddings, ranker, admission, packer — the ML work |
+| Store | **SQLite + Markdown files** | files are the truth; SQLite holds the derived index |
+| Vector | sqlite-vec | no server, no extra process |
 | Local inference | **Ollama** | free, no rate limit |
 
-## 5.2 Team split (5)
+## 9.2 Phases
+
+| Phase | Deliverable | Status |
+|---|---|---|
+| **0** | OS-layer proof — three triggers, positioning, paste-back | **done** |
+| **1** | **Working prototype**: OS layer + panel + API model + typed memory + ranker/admission + tools | **in progress** |
+| 2 | Import: export parsers, class extraction, review screen | |
+| 3 | Budget packer + registry, local and cloud, private mode | |
+| 4 | Full view, sessions, screenshots, OCR | |
+| 5 | Evaluation: OP-Bench, LongMemEval, ablation, latency, packet capture | |
+| 6 | Tauri port, installer, docs, release | |
+
+## 9.3 Team split (5)
 
 | | Owns |
 |---|---|
-| **S1** | Memory — schema, embeddings, retrieval, extraction prompts |
-| **S2** | Context assembly — budget model, relevance, ranking, ablations |
-| **S3** | **OS layer** — hotkeys, UIA + clipboard capture, positioning, paste-back |
-| **S4** | Interface — panel, full window, sessions, settings, onboarding |
-| **S5** | Execution + packaging — model registry, tools, streaming, installer |
-
-## 5.3 Phases
-
-| Phase | Deliverable |
-|---|---|
-| **0** | **OS-layer proof** — three triggers + positioning + paste-back working *(see `/perch/demo`)* |
-| 1 | Trigger → Ollama → answer in the panel |
-| 2 | Memory store, embeddings, retrieval, identity block |
-| 3 | Budget assembly, model registry, local + cloud |
-| 4 | Extraction prompts, project blocks, import flow |
-| 5 | Full window, sessions, screenshots, private mode |
-| 6 | Benchmarks, ablations, latency and privacy measurement |
-| 7 | Installer, docs, release |
+| **S1** | Memory — classes, schema, embeddings, store, import parsers, extraction |
+| **S2** | **Retrieval — router, ranker, admission scorer, packer, ablations** |
+| **S3** | OS layer — hotkeys, UIA + clipboard, positioning, paste-back |
+| **S4** | Interface — panel, full view, provenance display, settings, onboarding |
+| **S5** | Execution — registry, tools, streaming, sandbox, packaging |
 
 ---
 
-# PART VI — EVALUATION
+# PART X — EVALUATION
 
 | # | What | Against |
 |---|---|---|
-| **E1** | Memory retrieval quality | **LongMemEval** (500 questions, 6 categories), **LoCoMo** (1,540 questions, up to 35 sessions). Honest framing: near-saturated at 92–94%; we demonstrate competence, we do not claim a record |
-| **E2** | **Context assembly ablation** — no memory / full profile always / budget-aware selection, at three model sizes | **Ours.** Nobody publishes this, because nobody else has to serve a 4B local model and a frontier API from one memory layer |
-| **E3** | Latency — trigger to first token, local vs cloud | measured |
-| **E4** | **Private mode: bytes leaving the machine = 0** | packet capture |
-| **E5** | **UI Automation coverage per application** | measured table — no competitor publishes one |
+| **E1** | **Over-personalisation — the headline** | **OP-Bench** (1,700 instances, 20 users; irrelevance / repetition / sycophancy). Baselines: no memory, naive top-k, ours. **Naive memory scores 26.2–61.1% worse than no memory — we must beat both** |
+| **E2** | **Budget-assembly ablation (C1)** | ours. No memory / full profile always / budget-aware, at **three model sizes**. The margin should be largest on the smallest model |
+| **E3** | Retrieval quality | **LongMemEval** (500 q, 6 categories, incl. **abstention**) and **LoCoMo** (1,540 q). Honest: near-saturated at 92–94%; we validate competence, we do not claim a record |
+| **E4** | Admission gate ablation (C2) | cross-domain leakage rate with the gate off / threshold only / typed floor + margin. **MemGate reports 27.0% → 3.5% as the reference** |
+| **E5** | Privacy | bytes leaving the machine in private mode = **0**, by packet capture |
+| **E6** | Latency | trigger → first token, local vs cloud |
+| **E7** | **UIA coverage per application** | measured table across common Windows apps. No competitor publishes one |
 
 ---
 
-# PART VII — RISKS
+# PART XI — ★ SELF-CRITIQUE
+
+**You asked me to be a critic so this is the final version. The five weakest points, and what we do
+about each.**
+
+### 1. "Microsoft is shipping the Windows Semantic Index. You are redundant."
+**The strongest objection, and it is legitimate.** Response: it is unshipped (26H2), targets
+Enterprise/Pro with VBS+SLAT, exposes **no documented third-party access**, offers no model choice, and
+comes from a team that killed Copilot features in August 2026. **We run on Home edition, today, on any
+model including a local one.** *We do not claim Microsoft isn't doing this — we claim it will not be
+open, and open is the whole point.*
+
+### 2. "Your gating contribution is MemGate."
+**Partly true and we say so first.** Ours is declarative rather than learned: typed at the source,
+auditable, no training, no extra judge call, and the same type system drives privacy. **If the panel
+rejects that as insufficient, C1 (budget assembly) is the load-bearing contribution**, and it stands on
+its own with a named open problem behind it.
+
+### 3. "This is orchestration, not ML."
+**The risk my memory says this panel actually fails people on.** Response: the ranker is a learned
+relevance model, the admission scorer is a calibration problem with per-class thresholds fitted on held
+out data, the packer is constrained optimisation, and there are **four ablations on public benchmarks**.
+**Lead with E1 and E2. Do not open with the popup.**
+
+### 4. "Six classes is arbitrary."
+Honest answer: **it is a design choice, not a derivation.** The defence is that classes are a routing
+device and each one is a new failure mode, so the burden is on adding a seventh, not on justifying six.
+**And it is testable** — E1 measures whether routing helps or hurts, so if six is wrong the data says so.
+
+### 5. "Import depends on export formats you do not control."
+**True.** They are undocumented JSON that can change without notice. Mitigation: parsers are isolated
+per platform and fail loudly; the extraction-prompt path (§3.5) works with **no** export at all; and the
+review screen means a broken parser produces nothing rather than garbage.
+
+---
+
+# PART XII — RISKS
 
 | Risk | Response |
 |---|---|
-| *"This is just orchestration"* | **L2 and L3 are real ML** — embeddings, retrieval, ranking, budget optimisation, with benchmarks and an ablation. Lead with memory and context, not the popup |
-| Adjacency to NeuroGram / ContextOS | Base paper is a **KDD 2026 personal-assistant benchmark**, not a memory survey. The word *memory* does not appear before the architecture section |
-| Highlight has $50M and 500k users | **They pivoted to enterprise in March 2026.** Cloud-only, closed, rate-limited. We are local-capable, open, free, model-agnostic |
-| UI Automation coverage gaps | Clipboard fallback covers the rest; coverage documented honestly as a deliverable |
-| Antivirus false positives | Sign the installer; keep all capture user-initiated |
-| Scope sprawl — *the failure that killed Humane* | **One primitive: bring your context to where you already are.** Adaptive routing, multi-device sync and app automation are all v2, and named as v2 |
+| *"Just orchestration"* | four ablations, two public benchmarks, a calibration problem. Lead with retrieval, not the panel |
+| Windows Semantic Index | §11.1 — validates the shape; closed, gated, unshipped, no model choice |
+| Highlight has $50M | repositioned to teams March 2026. **Do not claim they abandoned consumers — unverified** |
+| OP-Bench shows memory *hurts* | that is our motivation, not our problem. It is why the admission gate exists |
+| UIA coverage gaps | clipboard fallback; coverage documented honestly as E7 |
+| Export formats change | isolated parsers, loud failures, prompt path as backstop |
+| Antivirus false positives | sign the installer; keep all capture user-initiated |
+| Scope sprawl — the failure that killed Humane | **one primitive: bring your context to where you already are.** Adaptive routing, sync, shell and app automation are v2, and named as v2 |
 
 > **The first slide:**
-> ***You pay for four AI assistants. None of them know you. PERCH is the one that does — and it works
-> inside all of them.***
+> ### ***You pay for four AI assistants. None of them know you, and none of them will tell each other. PERCH is the one that's yours.***
