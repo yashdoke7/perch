@@ -1,0 +1,16 @@
+# --- required: the OS layer ---
+pywin32>=306          # HWNDs, clipboard, synthesised input
+uiautomation>=2.0.20  # selection capture, Path A
+pillow>=10.0          # region screenshot
+
+# --- optional: document tools. Everything else runs without them ---
+pypdf>=4.0
+python-docx>=1.1
+python-pptx>=0.6
+
+# --- optional: tests ---
+pytest>=8.0
+
+# No ML dependency by design. Embeddings come from Ollama over HTTP, from an
+# OpenAI-compatible endpoint, or from a built-in hashed fallback -- so the
+# whole pipeline runs on a clean machine with nothing installed but the above.

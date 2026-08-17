@@ -14,3 +14,7 @@ demo/.captures/
 # os
 Thumbs.db
 .DS_Store
+
+# local memory store (never commit personal memory)
+.perch/
+perchhome/
