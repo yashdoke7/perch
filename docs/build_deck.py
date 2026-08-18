@@ -196,9 +196,12 @@ S("Problem Statement", [
 S("Proof This Is Real - Measured, Not Asserted", [
     ("ACM measurement.", " PAUSE, KDD 2026: frontier models below 70% task completion when the task "
      "requires reasoning over persistent user state."),
-    ("An established research category.", " Personal LLM Agents (Tsinghua AIR) defines agents deeply "
-     "integrated with personal data and devices, naming context sensing and memorization as "
-     "fundamental unsolved capabilities."),
+    ("An established research category.", " The Tsinghua AIR survey defines agents deeply integrated "
+     "with personal data and devices, naming context sensing and memorization as fundamental unsolved "
+     "capabilities. We flag it ourselves as a preprint - it carries vocabulary here, not authority."),
+    ("An IEEE forecast, for scale.", " The IEEE Global Study of 400 technology leaders puts personal "
+     "assistant and calendar management as the top expected mass-adoption use of agentic AI in 2026, "
+     "at 52%."),
     ("And a warning we take seriously.", " OP-Bench (2026) measures over-personalisation and finds "
      "memory-augmented assistants score 26.2% to 61.1% WORSE than memory-free baselines. Naive "
      "memory injection makes an assistant worse than having no memory at all."),
@@ -206,7 +209,7 @@ S("Proof This Is Real - Measured, Not Asserted", [
      "market share moving 15 points in a year."),
     ("Capability that did not exist in 2024.", " Qwen3 4B runs in ~3 GB and Qwen3 8B in ~5-6 GB "
      "quantised, so a genuinely useful local model now fits on an ordinary student laptop."),
-], size=10.5)
+], size=9.5)
 
 S("Can We Use the Subscriptions You Already Pay For?", [
     ("The ideal design is impossible.", " There is no cross-vendor memory API and there will not be "
@@ -575,27 +578,44 @@ S("Conclusion", [
      "PERCH is the one that's yours.", ""),
 ], size=10)
 
-S("References", [
+S("References - Peer-Reviewed Spine", [
     ("[1] PAUSE: A User-Centric Benchmark for Personal AI Assistants in Unified Service Environments.",
-     " ACM SIGKDD 2026. arXiv:2607.27354 - BASE PAPER"),
-    ("[2] Beyond Similarity: Trustworthy Memory Search for Personal AI Agents (MemGate).",
-     " arXiv:2606.06054"),
-    ("[3] OP-Bench: Benchmarking Over-Personalization for Memory-Augmented Personalized "
-     "Conversational Agents.", " arXiv:2601.13722"),
-    ("[4] Personalize-then-Store: Benchmarking and Learning Personalized Memory for Long-horizon "
-     "Agents.", " KAIST. arXiv:2605.25535"),
-    ("[5] Externalization in LLM Agents: A Unified Review of Memory, Skills, Protocols and Harness "
-     "Engineering.", " arXiv:2604.08224"),
-    ("[6] Li et al.", " Personal LLM Agents: Insights and Survey. Tsinghua AIR. arXiv:2401.05459"),
-    ("[7] A Survey on the Memory Mechanism of LLM-based Agents.",
-     " ACM TOIS 43(6), 2025. DOI 10.1145/3748302"),
-    ("[8] Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.",
-     " ECAI 2025. arXiv:2504.19413"),
-    ("[9] Corrective Retrieval Augmented Generation (CRAG)", " and Self-RAG - thresholded and "
-     "self-reflective retrieval."),
-    ("[10] Microsoft.", " UI Automation Overview, Win32 Accessibility documentation; Tauri v2 "
+     " Chen, Shi, Wang, Chen, Niu. ACM SIGKDD 2026, Jeju Island. - BASE PAPER"),
+    ("[2] A Survey on the Memory Mechanism of LLM-based Agents.",
+     " ACM Transactions on Information Systems 43(6), 2025. DOI 10.1145/3748302"),
+    ("[3] Evaluating Very Long-Term Conversational Memory of LLM Agents (LoCoMo).",
+     " ACL 2024, Long Papers. - evaluation benchmark"),
+    ("[4] LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory.",
+     " ICLR 2025. - evaluation benchmark, includes abstention"),
+    ("[5] Self-RAG: Learning to Retrieve, Generate and Critique through Self-Reflection.",
+     " Asai, Wu, Wang, Sil, Hajishirzi. ICLR 2024. - prior art for retrieve-or-not"),
+    ("[6] Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory.",
+     " ECAI 2025."),
+    ("[7] From Storage to Experience: The Evolution of LLM Agent Memory Mechanisms.",
+     " Findings of ACL 2026."),
+    ("[8] Bridging Intuitive Associations and Deliberate Recall.", " Findings of ACL 2025."),
+    ("[9] Memory in the LLM Era: Modular Architectures and Strategies.", " VLDB 2026."),
+    ("[10] Microsoft.", " UI Automation Overview and Win32 Accessibility documentation; Tauri v2 "
      "documentation; Windows AI Platform, Build 2026."),
 ], size=8.5)
+
+S("References - Current Preprints (2026)", [
+    ("Cited as current state of the art, not as settled results.", " Each is two to seven months old, "
+     "so nothing at that age has cleared peer review in any venue. None of them carries a claim on "
+     "its own, and none is load-bearing for the base paper or the evaluation plan."),
+    ("[11] Beyond Similarity: Trustworthy Memory Search for Personal AI Agents (MemGate).",
+     " arXiv:2606.06054, June 2026. - closest prior art to Contribution 2"),
+    ("[12] OP-Bench: Benchmarking Over-Personalization for Memory-Augmented Personalized "
+     "Conversational Agents.", " arXiv:2601.13722, January 2026. - our primary evaluation target"),
+    ("[13] Personalize-then-Store: Benchmarking and Learning Personalized Memory for Long-horizon "
+     "Agents.", " KAIST. arXiv:2605.25535, May 2026. - write-side gating"),
+    ("[14] Externalization in LLM Agents: A Unified Review of Memory, Skills, Protocols and Harness "
+     "Engineering.", " arXiv:2604.08224, April 2026. - names our Contribution 1 as an open problem"),
+    ("Two we flag ourselves, because age does not explain them.", " Personal LLM Agents (Tsinghua "
+     "AIR, arXiv:2401.05459) has been a preprint since January 2024 with no venue - we use its "
+     "vocabulary only, never as an authority. And CRAG (arXiv:2401.15884) was submitted to ICLR 2025 "
+     "and withdrawn, so it is cited as an approach, not as a published result."),
+], size=9.0)
 
 
 # ------------------------------------------------------------- diagram content

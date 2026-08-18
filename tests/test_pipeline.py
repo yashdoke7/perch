@@ -29,6 +29,19 @@ from app.memory.schema import MemoryItem  # noqa: E402
 from app.memory.store import MemoryStore  # noqa: E402
 
 
+# Tests that depend on retrieval QUALITY (does a genuinely relevant item score
+# above its floor?) need a real embedding model. The hashed fallback matches
+# only literal shared vocabulary, and its related/unrelated distributions
+# overlap -- see embed.is_semantic(). Those tests skip rather than fail when no
+# embedder is reachable, so the suite is honest on a machine without Ollama
+# instead of silently passing or failing on which happened to be running.
+needs_semantic = pytest.mark.skipif(
+    not embed.is_semantic(),
+    reason=f"needs a real embedder; backend is {embed.backend()!r}. "
+           "Start Ollama (`ollama pull nomic-embed-text`) or set PERCH_API_BASE.",
+)
+
+
 @pytest.fixture(scope="module")
 def store() -> MemoryStore:
     from app.seed import SEED
@@ -143,6 +156,7 @@ def test_naive_top_k_would_have_leaked(store):
     assert all(s.item.cls != "health" for s in naive), "and none of it is health"
 
 
+@needs_semantic
 def test_the_gate_still_admits_a_genuine_match(store):
     """A gate that never admits anything is not a gate, it is an off switch."""
     q = "why does the panel freeze when the model call is slow?"
@@ -202,6 +216,7 @@ def test_source_rule_matches_on_where_not_what():
     assert not privacy.decide(False, source_app="notepad.exe").private
 
 
+@needs_semantic
 def test_admitting_private_class_forces_local(store):
     item = MemoryItem(cls="health", title="Current medication",
                       tags=["medication", "dosage"],

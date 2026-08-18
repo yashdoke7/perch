@@ -48,7 +48,18 @@ def run_agent() -> None:
     total = sum(counts.values())
     print("PERCH — prototype")
     print(f"  memory      {total} items  {counts or '(empty — run: python -m app seed)'}")
-    print(f"  embeddings  {__import__('app.memory.embed', fromlist=['x']).backend()}\n")
+    from .memory import embed as _embed
+    print(f"  embeddings  {_embed.backend()}")
+    if not _embed.is_semantic():
+        # Loud, because the degradation is otherwise invisible: retrieval still
+        # "works", it just stops being able to match anything that does not
+        # share literal words, and the admission gate inherits that.
+        print("  !! FALLBACK EMBEDDINGS -- retrieval quality is badly degraded.")
+        print("     The hashed stand-in matches shared vocabulary only, so it")
+        print("     cannot relate 'rewrite this formally' to a note about your")
+        print("     writing style. Start Ollama and `ollama pull nomic-embed-text`,")
+        print("     then run `python -m app rebuild`.")
+    print()
 
     any_failed = False
     for label, combo, _fallbacks, desc, _cb in triggers:

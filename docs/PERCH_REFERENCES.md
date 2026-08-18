@@ -12,6 +12,89 @@
 
 ---
 
+# PART 0 — ★ VENUE AUDIT
+
+**The fair question: "is this all just arXiv?"** A raw count of the document says 19 arXiv IDs against
+6 named venues, which looks bad. Sorted by what actually carries weight, it is much better — **every
+load-bearing citation is peer-reviewed**, and the preprints are all support.
+
+## 0.1 The peer-reviewed spine — verified individually
+
+| Work | Venue | Role in this project |
+|---|---|---|
+| **PAUSE** | **ACM SIGKDD 2026** (KDD '26), Jeju Island, 9–13 Aug 2026 | ★ **BASE PAPER** |
+| **A Survey on the Memory Mechanism of LLM-based Agents** | **ACM TOIS 43(6), 2025** · DOI [10.1145/3748302](https://doi.org/10.1145/3748302) | L3 definition and taxonomy |
+| **LoCoMo** — *Evaluating Very Long-Term Conversational Memory of LLM Agents* | **ACL 2024** · [aclanthology.org/2024.acl-long.747](https://aclanthology.org/2024.acl-long.747/) | benchmark (E3) |
+| **LongMemEval** | **ICLR 2025** | benchmark (E3), incl. abstention |
+| **Self-RAG** — *Learning to Retrieve, Generate and Critique through Self-Reflection* | **ICLR 2024** (Asai, Wu, Wang, Sil, Hajishirzi) | prior art for retrieve-or-not |
+| **Mem0** — *Production-Ready AI Agents with Scalable Long-Term Memory* | **ECAI 2025** · arXiv 2504.19413 | memory baseline, LoCoMo comparison |
+| **From Storage to Experience: Evolution of LLM Agent Memory Mechanisms** | **Findings of ACL 2026** | memory-evolution survey |
+| *Bridging Intuitive Associations and Deliberate Recall* | **Findings of ACL 2025** | dual-path recall |
+| *Memory in the LLM Era: Modular Architectures* | **VLDB 2026** | modular decomposition |
+
+> **Nine peer-reviewed works, covering the base paper, both evaluation benchmarks, the gating prior
+> art, and the memory foundations.** That is the spine. Everything below is supporting evidence.
+
+## 0.2 arXiv-only *because it is recent* — legitimate, and stated as such
+
+| Work | Posted | Role |
+|---|---|---|
+| MemGate (2606.06054) | Jun 2026 | closest prior art to C2 |
+| OP-Bench (2601.13722) | Jan 2026 | primary evaluation target (E1) |
+| PerMemBench (2605.25535) | May 2026 | write-side gating |
+| Externalization survey (2604.08224) | Apr 2026 | names C1 as an open problem |
+
+**These are two to seven months old.** Nothing at that age has cleared review yet, in any venue. Citing
+recent preprints as *current state of the art* is normal practice; the distinction we hold is that
+**none of them is load-bearing for the base paper or the evaluation plan.**
+
+## 0.3 ⚠️ arXiv-only and *not* explained by recency — flag these yourself
+
+| Work | Problem |
+|---|---|
+| **Personal LLM Agents** (2401.05459) | Posted **January 2024** and still not in any proceedings, **two and a half years later**. That is not a recency story — see §0.4 |
+| **CRAG** (2401.15884) | **Submitted to ICLR 2025 and withdrawn.** It is widely cited and implemented in LangGraph, but it is not a published paper. Cite it as "the CRAG approach", never as a peer-reviewed result |
+
+## 0.4 ★ On *Personal LLM Agents* — you were right to be unsure
+
+**What it is:** Yuanchun Li and ~24 co-authors, Institute for AI Industry Research (AIR), **Tsinghua
+University**. Surveys architecture, capability, efficiency and security of agents "deeply integrated
+with personal data and personal devices", including structured opinions from **25 senior practitioners**
+(chief architects, managing directors, senior engineers) at companies building personal assistants.
+
+**What it is not:** peer-reviewed. It has sat on arXiv since **January 2024** with no venue. Some
+aggregator sites describe it as "peer-reviewed research from a leading institution" — **that is a
+category error they make about anything from a famous lab, and repeating it to a panel would be a
+serious mistake.** arXiv has no peer review.
+
+**Verdict — how to use it:**
+
+| ✅ Safe | ❌ Not safe |
+|---|---|
+| Borrowing its **vocabulary** — "personal LLM agent", context sensing, memorization | Presenting it as the base paper, or as an authority |
+| Showing the **category is established** and industrially serious | Quoting its expert-survey numbers as a peer-reviewed finding |
+| A **related-work** citation among many | Letting it carry any claim on its own |
+
+> **It is a well-known, heavily-cited preprint from a serious lab, and it is still a preprint.** Say
+> exactly that if asked. Our base paper is PAUSE (ACM SIGKDD 2026) and does not depend on it.
+
+**Peer-reviewed alternatives that can do the same job:**
+
+| Instead of | Use | Venue |
+|---|---|---|
+| Personal LLM Agents, for *"this is an established category"* | ⚠️ *Agentic AI: A Comprehensive Survey of Architectures, Applications and Future Directions* — PRISMA review of 90 studies, 2018–2025 | **Artificial Intelligence Review** (Springer), DOI 10.1007/s10462-025-11422-4. ⚠️ **paywalled — I could not open it; verify before citing** |
+| Personal LLM Agents, for *memory taxonomy* | *From Storage to Experience* | **Findings of ACL 2026** |
+| Personal LLM Agents, for *market seriousness* | **IEEE Global Study**, *The Impact of Technology in 2026 and Beyond* — 400 technology leaders; **52% forecast mass adoption of AI personal-assistant and calendar management** | IEEE (industry study, not a paper — cite as a survey, not research) |
+
+## 0.5 The sentence to use if the panel asks
+
+> *"Our base paper is ACM SIGKDD 2026. Both evaluation benchmarks are ACL 2024 and ICLR 2025, the memory
+> taxonomy is ACM TOIS 2025, and the gating prior art is ICLR 2024. The 2026 preprints we cite are two
+> to seven months old, so nothing at that age is published yet in any venue — and none of them carries a
+> claim on its own."*
+
+---
+
 # PART 1 — THE BASE PAPER
 
 ## ✅ PAUSE — *A User-Centric Benchmark for Personal AI Assistants in Unified Service Environments*
@@ -56,9 +139,13 @@ unified service environments that already have access and configuration. It does
 does not address how a user supplies their own state, does not address OS-level capture, and does not
 address operating within a fixed token budget across heterogeneous local and cloud models.
 
-## ✅ Conceptual anchor — *Personal LLM Agents: Insights and Survey*
+## ⚠️ Conceptual anchor — *Personal LLM Agents: Insights and Survey* — **PREPRINT, NOT PEER-REVIEWED**
 
 Li et al., Institute for AI Industry Research (AIR), **Tsinghua University** — https://arxiv.org/abs/2401.05459
+
+> **Read §0.4 before using this.** arXiv-only since January 2024 with no venue in two and a half years.
+> Use it for vocabulary and to show the category is established — never as an authority, and never as
+> the base paper.
 
 The taxonomy for this product category: agents *"deeply integrated with personal data and personal
 devices and used for personal assistance."*
@@ -164,8 +251,8 @@ https://arxiv.org/abs/2604.08224
 
 | Work | Link | What it does | Why it is not us |
 |---|---|---|---|
-| ⚠️ **CRAG** — Corrective RAG | arXiv 2401.15884 | a lightweight **retrieval evaluator** scores retrieved docs; below a **relevance threshold** it triggers correction — Correct / Ambiguous / Incorrect, falling back to web search | operates on a document corpus for QA; no personal memory, no classes, no budget, no privacy coupling |
-| ⚠️ **Self-RAG** | arXiv 2310.11511 | trains **reflection tokens** so the model decides *when* to retrieve and critiques relevance and factuality | requires training the generator; we gate outside the model |
+| ⚠️ **CRAG** — Corrective RAG **(withdrawn from ICLR 2025 — preprint only)** | arXiv 2401.15884 · [OpenReview](https://openreview.net/forum?id=JnWJbrnaUE) | a lightweight **retrieval evaluator** scores retrieved docs; below a **relevance threshold** it triggers correction — Correct / Ambiguous / Incorrect, falling back to web search | operates on a document corpus for QA; no personal memory, no classes, no budget, no privacy coupling. **Cite as "the CRAG approach", not as a published result** |
+| ✅ **Self-RAG** — **ICLR 2024** | arXiv 2310.11511 | trains **reflection tokens** so the model decides *when* to retrieve and critiques relevance and factuality | requires training the generator; we gate outside the model. **This is the peer-reviewed prior art to cite for retrieve-or-not** |
 | 🟡 **Adaptive-RAG / L-RAG** | arXiv 2601.06551 | entropy-based lazy loading — retrieve only when the model is uncertain | complementary; a candidate v2 addition |
 | 🟡 **Beyond Semantic Relevance** — counterfactual risk minimization for RAG | arXiv 2605.01302 | gates inclusion by a predicted **robustness score** above a safety threshold | same shape, general RAG, not personal memory |
 | 🟡 **MemGuard** | arXiv 2605.28009 | preventing **memory contamination** in long-term memory-augmented LLMs | adversarial/poisoning framing; ours is relevance, not attack |
@@ -197,11 +284,18 @@ https://arxiv.org/abs/2604.08224
 | Benchmark | Link | Contents | Our use |
 |---|---|---|---|
 | ✅ **OP-Bench** | arXiv 2601.13722 | 1,700 instances, 20 users; irrelevance / repetition / sycophancy | **E1 — primary.** Directly measures the failure our gate prevents |
-| ⚠️ **LongMemEval** | arXiv 2410.10813 | 500 questions, 6 categories; five abilities including **abstention**; 115K (S) to 1.5M (M) token settings | **E3** — and the abstention category validates the gate |
-| ⚠️ **LoCoMo** | arXiv 2402.17753 | 1,540 questions, 4 categories, ~300 turns, up to 35 sessions | **E3** — comparability with Mem0/MemGate |
+| ✅ **LongMemEval** — **ICLR 2025** | arXiv 2410.10813 | 500 questions, 6 categories; five abilities including **abstention**; 115K (S) to 1.5M (M) token settings | **E3** — and the abstention category validates the gate |
+| ✅ **LoCoMo** — **ACL 2024** | [aclanthology.org/2024.acl-long.747](https://aclanthology.org/2024.acl-long.747/) | *Evaluating Very Long-Term Conversational Memory of LLM Agents.* Conversations averaging **600 turns / 16K tokens over up to 32 sessions**; QA, event summarisation, multi-modal dialogue | **E3** — comparability with Mem0/MemGate |
 | ✅ **PerMemBench** | arXiv 2605.25535 | multi-year multi-domain personalized memory | write-side gating evaluation |
 | 🟡 **From Recall to Forgetting** | arXiv 2604.20006 | long-term memory for personalized agents, incl. forgetting | candidate for the forgetting/caps policy |
 | ⚠️ LongMemEval-V2 · StreamMemBench | arXiv 2605.12493 · 2606.14571 | harder, newer settings | **to read** — are they runnable by us? |
+
+> ⚠️ **UNRESOLVED — the LoCoMo figures disagree between sources.** Earlier drafts of this document (and
+> the deck) say *"1,540 questions, ~300 turns, up to 35 sessions"*, taken from secondary write-ups. The
+> **ACL 2024 anthology abstract** says conversations average **600 turns and 16K tokens over up to 32
+> sessions**. These are not reconcilable, and at least one is wrong — possibly both describe different
+> released versions. **Open the ACL paper and take the numbers from it before any of this reaches a
+> slide.** Do not quote LoCoMo's size from memory in the review.
 
 > ⚠️ **Framing discipline:** 2026 reference scores are **LoCoMo 92.5%, LongMemEval 94.4%, BEAM-1M 62%.**
 > LoCoMo and LongMemEval are near-saturated. **We do not pitch beating them.** We use them to validate
@@ -418,6 +512,7 @@ visibly user-initiated.
 
 | # | What | Why it matters |
 |---|---|---|
+| 0 | **LoCoMo, ACL 2024** — https://aclanthology.org/2024.acl-long.747/ | **the numbers in our deck do not match the abstract.** Resolve before the review — see the warning in Part 5 |
 | 1 | **MemGate** full text — https://arxiv.org/html/2606.06054v1 | closest prior art to C2. **Read before writing the contribution slide** |
 | 2 | **OP-Bench** full text — https://arxiv.org/html/2601.13722v1 | our primary evaluation. Need the exact scoring protocol |
 | 3 | **PAUSE** full PDF — https://arxiv.org/abs/2607.27354 | models benchmarked, task counts, failure patterns are **still unknown** |

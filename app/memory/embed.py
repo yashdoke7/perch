@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import urllib.error
 import urllib.request
@@ -31,8 +32,24 @@ def backend() -> str:
     """Resolve once, then remember. Reported in the panel so provenance is honest."""
     global _backend
     if _backend is None:
-        _backend = _probe()
+        forced = os.environ.get("PERCH_EMBED_BACKEND")
+        _backend = forced if forced in ("ollama", "api", "hashed") else _probe()
     return _backend
+
+
+def is_semantic() -> bool:
+    """True when a real embedding model is answering.
+
+    The hashed fallback matches only on literal shared vocabulary, so its
+    related and unrelated score distributions OVERLAP -- measured on the seed
+    set, an unrelated pair scored 0.178 while a genuinely related one
+    ("rewrite this more formally" against a note about writing style, which
+    share no words) scored 0.071. No baseline constant can separate those,
+    because the problem is representational rather than a matter of
+    calibration. Anything that depends on retrieval QUALITY rather than
+    retrieval PLUMBING must check this first.
+    """
+    return backend() in ("ollama", "api")
 
 
 def _probe() -> str:
