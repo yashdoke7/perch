@@ -87,9 +87,24 @@ class Pipeline:
         self.store = store or MemoryStore()
         toolreg.bind_memory(self.store)
 
-    def run(self, req: Request) -> Response:
+    def run(self, req: Request, on_stage=None, on_token=None) -> Response:
+        """Execute the request.
+
+        on_stage(name, detail) fires as each stage completes, so a UI can
+        show the pipeline working rather than a frozen spinner -- the stages
+        it reports are exactly the ones in the architecture diagram, which
+        is the point: the contribution is watchable, not just claimed.
+        on_token(text) fires per streamed token of the final answer.
+        """
         started = time.time()
         trace = Trace()
+
+        def stage(name: str, detail: str = "") -> None:
+            if on_stage:
+                try:
+                    on_stage(name, detail)
+                except Exception:      # a UI bug must never break the pipeline
+                    pass
 
         # --- 1. privacy, BEFORE anything reaches a model ---------------------
         decision = privacy.decide(
@@ -116,17 +131,22 @@ class Pipeline:
             for cls_name in self._probe(qvec, exclude=eligible):
                 eligible.append(cls_name)
         trace.eligible = eligible
+        stage("route", ", ".join(eligible))
 
         candidates = self.store.candidates(eligible, qvec, config.OVERFETCH)
         trace.candidates = len(candidates)
 
         ranked = ranker.rank(candidates, req.question, req.selection)
+        stage("rank", f"{len(ranked)} candidates")
+
         result = admission.admit(ranked)
 
         trace.admitted = result.admitted
         trace.dropped = result.dropped
         trace.rejected_classes = result.classes_rejected
         trace.abstained = result.abstained
+        stage("gate", "abstained" if result.abstained
+              else f"{len(result.admitted)} in, {len(result.dropped)} out")
 
         # --- 6. the class-driven privacy rule --------------------------------
         # Falls out of the type system for free: if the gate admitted a health
@@ -162,11 +182,15 @@ class Pipeline:
         for s in packed.evicted:
             trace.dropped.append(s)
         trace.admitted = packed.included
+        stage("pack", f"{packed.used}/{packed.budget} tok")
 
         # --- 9. generate, with the tool loop ---------------------------------
         tool_log: list[str] = []
+        stage("model", model.model_id)
         answer = client.complete_with_tools(
-            model, packed.system, packed.prompt, allow_network, tool_log
+            model, packed.system, packed.prompt, allow_network, tool_log,
+            on_token=on_token,
+            on_tool=lambda name: stage("tool", name),
         )
         trace.tools = tool_log
 

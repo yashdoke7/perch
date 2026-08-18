@@ -59,6 +59,18 @@ PANEL_W = 460
 PAD = 16
 RADIUS = 16
 
+# The pipeline stages the tracker lights up, in order. These deliberately
+# mirror the architecture diagram's Stage 2 and 3 -- same names, same order --
+# so the demo and the diagram corroborate each other rather than being two
+# separate stories the reviewer has to reconcile.
+STAGES = [
+    ("route", "route"),
+    ("rank", "rank"),
+    ("gate", "gate"),
+    ("pack", "pack"),
+    ("model", "model"),
+]
+
 
 def _font(size: int, weight: str = "normal") -> tuple:
     family = "Segoe UI Semibold" if weight == "bold" else "Segoe UI"
@@ -81,6 +93,7 @@ class Panel:
         self.answer = ""
         self.busy = False
         self._dots_job = None
+        self._streamed = False
 
         self.root = tk.Tk()
         self.root.title("PERCH")
@@ -186,6 +199,23 @@ class Panel:
         self.prompt.bind("<FocusOut>", lambda _e: entry_card.configure(highlightbackground=BORDER))
         self.prompt.focus_set()
 
+        # ---- live pipeline tracker ---------------------------------------
+        # The single most useful thing this panel can show during a demo: the
+        # request visibly moving through the same stages as the architecture
+        # diagram, with the gate reporting what it let in and kept out. A
+        # frozen spinner for 15s says nothing; this says exactly what the
+        # project claims to do, while it does it.
+        self.stage_wrap = tk.Frame(outer, bg=BG)
+        self.stage_wrap.pack(fill="x", pady=(0, 6))
+        self.stage_pills: dict[str, tk.Label] = {}
+        for key, text in STAGES:
+            pill = tk.Label(self.stage_wrap, text=text, bg=CARD, fg=BORDER,
+                            font=_font(7), padx=6, pady=2)
+            pill.pack(side="left", padx=(0, 3))
+            self.stage_pills[key] = pill
+        self.stage_detail = self._label(outer, "", MUTED, 7)
+        self.stage_detail.pack(fill="x", pady=(0, 4))
+
         self.status = self._label(outer, "Enter to ask", size=8)
         self.status.pack(fill="x", pady=(0, 8))
 
@@ -239,7 +269,10 @@ class Panel:
         if not question or self.busy:
             return
         self.busy = True
+        self.answer = ""
+        self._streamed = False
         self.out.delete("1.0", "end")
+        self._reset_stages()
         self._animate_thinking()
         self.root.update_idletasks()
 
@@ -251,14 +284,63 @@ class Panel:
             private_toggle=self.private.get(),
         )
 
+        # Both callbacks fire on the pipeline's worker thread, so every one
+        # of them marshals back to the UI thread via after(0, ...) -- tkinter
+        # is not thread-safe and touching widgets directly from the worker
+        # is the classic way this kind of panel dies mid-demo.
+        def on_stage(name: str, detail: str) -> None:
+            self.root.after(0, lambda: self._mark_stage(name, detail))
+
+        def on_token(text: str) -> None:
+            self.root.after(0, lambda: self._append_token(text))
+
         def work() -> None:
             try:
-                response = self.pipeline.run(req)
+                response = self.pipeline.run(req, on_stage=on_stage, on_token=on_token)
             except Exception as exc:                      # noqa: BLE001
                 response = Response(answer=f"(pipeline error: {exc})", trace=None)  # type: ignore[arg-type]
             self.root.after(0, lambda: self._show(response))
 
         threading.Thread(target=work, daemon=True).start()
+
+    # ------------------------------------------------------- stage tracker
+
+    def _reset_stages(self) -> None:
+        for pill in self.stage_pills.values():
+            pill.configure(bg=CARD, fg=BORDER)
+        self.stage_detail.configure(text="")
+
+    def _mark_stage(self, name: str, detail: str) -> None:
+        # "tool" is not one of the five pills -- it can fire repeatedly inside
+        # the model stage, so it shows in the detail line instead.
+        if name == "tool":
+            self.stage_detail.configure(text=f"calling {detail}…", fg=ACCENT)
+            return
+        pill = self.stage_pills.get(name)
+        if pill is None:
+            return
+        # The gate is the contribution, so it gets its own colour: red when it
+        # abstained (a correct, deliberate refusal), green when it admitted.
+        if name == "gate":
+            colour = BAD if detail == "abstained" else GOOD
+        else:
+            colour = ACCENT
+        pill.configure(bg=CARD_ALT, fg=colour)
+        if detail:
+            self.stage_detail.configure(text=f"{name}: {detail}", fg=MUTED)
+
+    def _append_token(self, text: str) -> None:
+        if not self._streamed:
+            self._streamed = True
+            self.out.delete("1.0", "end")
+            self.busy = False          # stop the dots; real output is arriving
+            if self._dots_job:
+                self.root.after_cancel(self._dots_job)
+                self._dots_job = None
+            self.status.configure(text="answering…")
+        self.answer += text
+        self.out.insert("end", text)
+        self.out.see("end")
 
     def _animate_thinking(self, tick: int = 0) -> None:
         if not self.busy:
@@ -273,8 +355,15 @@ class Panel:
             self.root.after_cancel(self._dots_job)
             self._dots_job = None
 
-        self.answer = response.answer
-        self.out.insert("1.0", response.answer)
+        # If tokens already streamed in, the text is on screen and correct --
+        # re-inserting the full answer here would duplicate it. Only paint
+        # when nothing streamed (cloud path, stub, tool-loop turns, errors).
+        if not self._streamed:
+            self.answer = response.answer
+            self.out.delete("1.0", "end")
+            self.out.insert("1.0", response.answer)
+        else:
+            self.answer = response.answer or self.answer
 
         trace = response.trace
         self._render_chips(trace)

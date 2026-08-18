@@ -30,6 +30,32 @@ def _post(url: str, payload: dict, headers: dict | None = None, timeout: int = 1
         return json.loads(resp.read().decode())
 
 
+def _post_lines(url: str, payload: dict, headers: dict | None = None, timeout: int = 180):
+    """Yield each JSON object from a line-delimited streaming response.
+
+    Ollama streams newline-delimited JSON objects; OpenAI-compatible
+    endpoints stream SSE ('data: {...}' with a '[DONE]' sentinel). Both are
+    handled here so the caller just gets dicts.
+    """
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST")
+    req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        for raw in resp:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line:
+                continue
+            if line.startswith("data:"):
+                line = line[5:].strip()
+                if line == "[DONE]":
+                    return
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+
 def complete(model: Model, system: str, prompt: str) -> str:
     """One shot, no tools. Used by the local path and by the extractor."""
     if model.provider == "ollama":
@@ -60,7 +86,8 @@ def complete(model: Model, system: str, prompt: str) -> str:
 
 
 def complete_with_tools(model: Model, system: str, prompt: str,
-                        allow_network: bool, log: list[str]) -> str:
+                        allow_network: bool, log: list[str],
+                        on_token=None, on_tool=None) -> str:
     """The agent loop: model -> tool call -> result -> model, until it stops.
 
     Both routes get the loop, not just the cloud one -- a student running
@@ -81,7 +108,8 @@ def complete_with_tools(model: Model, system: str, prompt: str,
     if model.provider == "openai_compatible":
         return _openai_tool_loop(model, messages, schemas, allow_network, log)
     if model.provider == "ollama":
-        return _ollama_tool_loop(model, messages, schemas, allow_network, log)
+        return _ollama_tool_loop(model, messages, schemas, allow_network, log,
+                                 on_token=on_token, on_tool=on_tool)
     return complete(model, system, prompt)
 
 
@@ -122,31 +150,49 @@ def _openai_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
 
 
 def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
-                      allow_network: bool, log: list[str]) -> str:
-    """Same shape as the OpenAI loop, over /api/chat.
+                      allow_network: bool, log: list[str],
+                      on_token=None, on_tool=None) -> str:
+    """Same shape as the OpenAI loop, over /api/chat, but streaming.
 
     Two differences from the OpenAI path: Ollama has no tool_choice knob,
     and its tool_calls arrive with arguments already as a dict rather than
     a JSON string -- handled below rather than assumed.
+
+    Streaming matters more than it looks for a live demo: a local 3B model
+    takes 10-20s to finish, and a frozen window for that long reads as a
+    hang. Tokens are emitted through on_token as they arrive. Tool calls
+    can also appear mid-stream, so both are accumulated in one pass.
     """
     for _ in range(MAX_TOOL_STEPS):
+        content_parts: list[str] = []
+        calls: list[dict] = []
         try:
-            out = _post(f"{config.OLLAMA_URL}/api/chat", {
+            for chunk in _post_lines(f"{config.OLLAMA_URL}/api/chat", {
                 "model": model.model_id,
                 "messages": messages,
                 "tools": schemas,
-                "stream": False,
-            }, timeout=120)
+                "stream": True,
+            }):
+                msg = chunk.get("message") or {}
+                for call in (msg.get("tool_calls") or []):
+                    calls.append(call)
+                piece = msg.get("content") or ""
+                if piece:
+                    content_parts.append(piece)
+                    if on_token and not calls:
+                        # Only surface tokens once we know this turn is a real
+                        # answer, not a preamble to a tool call.
+                        on_token(piece)
+                if chunk.get("done"):
+                    break
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             return f"(local model unreachable: {exc})"
 
-        msg = out.get("message") or {}
-        calls = msg.get("tool_calls") or []
+        content = "".join(content_parts).strip()
         if not calls:
-            return (msg.get("content") or "").strip()
+            return content
 
-        messages.append({"role": "assistant", "content": msg.get("content") or "",
-                         "tool_calls": calls})
+        messages.append({"role": "assistant", "content": content, "tool_calls": calls})
         for call in calls:
             fn = call.get("function", {})
             name = fn.get("name", "")
@@ -156,6 +202,8 @@ def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
                     args = json.loads(args)
                 except json.JSONDecodeError:
                     args = {}
+            if on_tool:
+                on_tool(name)
             result = toolreg.dispatch(name, args, allow_network=allow_network)
             log.append(f"{name}({', '.join(f'{k}={v!r}' for k, v in args.items())[:80]})")
             messages.append({"role": "tool", "content": result[:4000]})

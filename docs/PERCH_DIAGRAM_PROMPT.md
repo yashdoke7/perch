@@ -22,6 +22,26 @@ work being done at each point in the request, which is also just a clearer story
 
 ---
 
+**What a good comparison diagram taught us.** A parallel project's title-approval diagram (a numbered
+1–8 pipeline for a requirements-gap detector) did three things our first stage render did not, all worth
+stealing:
+
+| It did | We were missing it | Now fixed by |
+|---|---|---|
+| **Named real technologies on the diagram** — Neo4j, FAISS, PostgresDB, GitHub | Ours named almost none, so it read as a concept sketch rather than a built system | small monospace tech tags: `Win32 · UI Automation`, `Tauri v2`, `SQLite + sqlite-vec`, `nomic-embed-text`, `qwen2.5` |
+| **Explicit input artifacts** — PDF, DOCX, Email, Jira as file icons feeding the left edge | Ours started at "user presses a key" with no visible inputs at all | an **input column**: where you work (PDF/IDE/browser/email) *and* where your context comes from |
+| **Explicit output artifacts** — an interactive dashboard and a PDF/XLSX report | Ours ended at "Edit In Place" with no visible deliverable | an **output column**: the edited document, and the answer-plus-provenance panel |
+
+> **The most valuable of the three is the input column.** Our import path — ChatGPT/Claude/Gemini
+> exports parsed locally — is **contribution C3** and was completely invisible on the diagram. A panel
+> looking at the old render could not tell that PERCH ingests anything at all.
+
+**One thing deliberately not copied: the monochrome whiteboard aesthetic.** That diagram is hand-drawn
+greyscale, which reads as considered and engineer-ish — but this panel explicitly asked for colour and
+for database iconography. Our colour-coded stages are an advantage here, not a gap; keep them.
+
+---
+
 ## ★★★ PROMPT 0 — RECOMMENDED: four connected stage-clusters
 
 ```
@@ -53,9 +73,41 @@ as more important than the internal wiring. All text exactly as given below.
 No 3D, no watermark, no real company logos -- write "Ollama" and "NVIDIA NIM"
 as plain text only.
 
+TECH TAGS -- IMPORTANT
+Under the named nodes listed below, add a tiny monospace tag in a small grey
+rounded chip naming the ACTUAL technology, the way a real system diagram does.
+These are small (about 60% of the subtitle size) and sit at the bottom edge of
+their card. Use exactly these strings:
+    CAPTURE          -> "Win32 · UI Automation"
+    PANEL OPENS      -> "Tauri v2"
+    MEMORY STORE     -> "SQLite + sqlite-vec"
+    RANKER           -> "nomic-embed-text"
+    LOCAL -- Ollama  -> "qwen2.5"
+Do not invent tech tags for any other node.
+
+INPUT COLUMN -- far left, OUTSIDE and to the left of Stage 1, no coloured
+container, just two small labelled groups stacked vertically with a thin
+bracket joining each group to its arrow:
+
+  Group A, small grey header "WHERE YOU WORK":
+    four small file/app icons in a 2x2 grid, labelled exactly
+    "PDF", "IDE", "BROWSER", "EMAIL"
+    -> one arrow from this group into the "TRIGGER" node in Stage 1,
+       labelled "you select something"
+
+  Group B, small grey header "WHERE YOUR CONTEXT COMES FROM":
+    three small document icons in a row, labelled exactly
+    "ChatGPT export", "Claude export", "Gemini Takeout"
+    -> one arrow from this group going into the "MEMORY STORE" node inside
+       Stage 2, labelled "imported once, parsed locally"
+    This arrow enters Stage 2 from the left and must be visibly SEPARATE from
+    the main Stage 1 -> Stage 2 handoff arrow -- it is a different, one-time
+    path, so draw it thinner and in grey.
+
+A small "USER" node (person icon) sits just above the INPUT COLUMN, with a
+short arrow down into Group A, labelled "selects text, presses a key".
+
 STAGE 1 -- colour BLUE (#4D8DF0), header "1. SUMMON"
-  A small "USER" node (person icon) sits just outside/above this container,
-  with an arrow "selects text, presses a key" into the first node inside it.
   Inside the container, in order, connected by arrows:
     "TRIGGER" -- one card with three small icons together (keyboard, cursor-
        select, camera), subtitle "hotkey · selection · screenshot -- any one
@@ -79,10 +131,13 @@ STAGE 2 -- colour GREEN (#22A06B), header "2. UNDERSTAND WHAT YOU KNOW"
        Directly below this node, six small coloured pill tags in a 3x2 grid:
        "IDENTITY", "PROJECT", "ACADEMIC", "CAREER", "HEALTH", "PERSONAL",
        with a tiny padlock glyph on "HEALTH" and "PERSONAL" only.
-    -> "RANKER" -- sort-arrows icon, subtitle "orders candidates by
-       relevance to this question"
-    -> "ADMISSION GATE" -- filter-funnel icon, THICKER border, small star
-       badge in the corner, subtitle "per-class floor + margin". From here
+    -> "RANKER" -- its OWN separate white card with a sort-arrows icon,
+       subtitle "orders candidates by relevance to this question". It must be
+       a full card of its own, the same size as the others -- do not let its
+       label float loose above the next node or merge into it.
+    -> "ADMISSION GATE" -- a SEPARATE card, filter-funnel icon, THICKER
+       border, small star badge in the corner, subtitle "per-class floor +
+       margin". From here
        draw TWO branches: a GREEN arrow labelled "admitted" continuing right
        to the next node, and a RED DASHED arrow labelled "dropped -- with a
        reason" going down to a small crossed-circle icon that stays fully
@@ -112,13 +167,21 @@ STAGE 3 -- colour ORANGE (#F0913A), header "3. ANSWER"
 
 STAGE 4 -- colour BLUE again (#4D8DF0, same as Stage 1 -- this is the surface
 layer closing the loop), header "4. DELIVER"
-  Inside:
+  Inside, EXACTLY ONE node -- do not duplicate it, do not draw it twice:
     "EDIT IN PLACE" -- pencil-on-document icon, subtitle "Replace / Insert
        after / Copy"
   Draw one long dashed arrow curving from EDIT IN PLACE back to the "PANEL
   OPENS" node in Stage 1, labelled "pastes back into the app you were
   already in" -- route it ABOVE the whole diagram so it does not cross the
   main left-to-right flow.
+
+OUTPUT COLUMN -- far right, OUTSIDE and to the right of Stage 4, no coloured
+container, two small artifact cards stacked vertically, each reached by a
+short arrow from EDIT IN PLACE:
+    a document icon, labelled "YOUR DOCUMENT, EDITED" with small subtitle
+       "the selection replaced, in the app you were already in"
+    a panel/window icon, labelled "ANSWER + PROVENANCE" with small subtitle
+       "which memories were used, which were dropped and why"
 
 CROSS-CUTTING, drawn separately from the main flow, thin grey dashed, no
 number badge, small label "private forces local": one arrow from PRIVACY
@@ -133,6 +196,49 @@ all sides, not rotated, horizontal text, containing all three lines:
 
 TITLE, top centre, bold: "PERCH — System Architecture"
 Subtitle beneath, smaller grey text: "four stages, one continuous request"
+```
+
+---
+
+## PROMPT 0a — fix the defects in an existing stage render (edit, don't regenerate)
+
+The first stage render came out largely right, with two real defects and three
+omissions. If yours looks like that, paste the image back and use this rather than
+regenerating from scratch.
+
+```
+Edit this diagram. Keep the four coloured stages, all existing nodes, labels,
+colours and arrows exactly as they are, and make only these changes:
+
+1. Stage 4 currently contains TWO identical "EDIT IN PLACE" cards. Delete one
+   so exactly one remains.
+
+2. In Stage 2, "RANKER" is currently a loose floating label sitting above the
+   Admission Gate card. Give RANKER its own proper white card, the same size
+   and style as the others, with a sort-arrows icon and the subtitle "orders
+   candidates by relevance to this question", placed between MEMORY STORE and
+   ADMISSION GATE and connected to both with arrows.
+
+3. Add a small monospace grey tech tag at the bottom edge of these five cards
+   only, reading exactly: CAPTURE -> "Win32 · UI Automation"; PANEL OPENS ->
+   "Tauri v2"; MEMORY STORE -> "SQLite + sqlite-vec"; RANKER ->
+   "nomic-embed-text"; LOCAL -- Ollama -> "qwen2.5".
+
+4. Add an input column on the far left, outside all coloured stages, with two
+   labelled groups: "WHERE YOU WORK" (four small icons: PDF, IDE, BROWSER,
+   EMAIL) with an arrow into TRIGGER labelled "you select something"; and
+   "WHERE YOUR CONTEXT COMES FROM" (three document icons: "ChatGPT export",
+   "Claude export", "Gemini Takeout") with a thinner grey arrow running into
+   the MEMORY STORE node inside Stage 2, labelled "imported once, parsed
+   locally".
+
+5. Add an output column on the far right, outside all coloured stages, with
+   two small cards reached by short arrows from EDIT IN PLACE: "YOUR
+   DOCUMENT, EDITED" (document icon, subtitle "the selection replaced, in the
+   app you were already in") and "ANSWER + PROVENANCE" (panel icon, subtitle
+   "which memories were used, which were dropped and why").
+
+Do not change anything else.
 ```
 
 ---
