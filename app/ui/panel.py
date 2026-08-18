@@ -176,6 +176,18 @@ class Panel:
             box.insert("1.0", selection)
             box.configure(state="disabled")
             box.pack(fill="x")
+        elif capture_method == "none":
+            # Say this loudly. A silently-empty capture makes the model answer
+            # a question about text it never received -- which reads as the
+            # model being stupid ("which company do you mean?") when in fact
+            # the OS layer handed it nothing.
+            warn = tk.Frame(outer, bg=CARD, highlightthickness=1,
+                            highlightbackground=WARN)
+            warn.pack(fill="x", pady=(0, 10))
+            self._label(warn, "  no text captured from that window", WARN, 8,
+                       bg=CARD).pack(fill="x", pady=(5, 0))
+            self._label(warn, "  ask anything anyway, or re-select and retry",
+                       MUTED, 7, bg=CARD).pack(fill="x", pady=(0, 5))
 
         # ---- ask row --------------------------------------------------------
         ask_row = tk.Frame(outer, bg=BG)

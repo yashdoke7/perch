@@ -254,6 +254,24 @@ def test_hotkey_dispatch_survives_a_broken_handler():
     assert listener.dispatch(9999) is False             # unknown id is safe
 
 
+def test_synthetic_chords_wait_for_the_summoning_modifiers():
+    """Regression: capture returned nothing because Alt was still held.
+
+    PERCH is summoned by Ctrl+Alt+<key>, so when the callback runs the user
+    is still physically holding Ctrl and Alt. Sending Ctrl+C on top of a held
+    Alt delivers Ctrl+ALT+C to the target, which is not copy -- so the
+    clipboard never changed, capture came back empty, and the model was asked
+    about a selection it never received.
+    """
+    from app.os_layer import winapi
+
+    assert winapi.modifiers_held() == [], "test env should have no keys held"
+    assert winapi.wait_for_modifier_release() is True
+    # The guard must be wired into the chord helper, not just available.
+    import inspect
+    assert "wait_for_modifier_release" in inspect.getsource(winapi._chord)
+
+
 def test_hotkey_combo_parsing_round_trips():
     from app import config
 
