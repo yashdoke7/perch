@@ -29,15 +29,25 @@ python -m app
 
 | Shortcut | |
 |---|---|
-| `Ctrl+Alt+Space` | read the current selection, open the panel beside that window |
-| `Ctrl+Alt+S` | drag a region, then ask about it |
-| `Ctrl+Alt+P` | ask with nothing selected |
+| `Ctrl+Alt+J` | read the current selection, open the panel beside that window |
+| `Ctrl+Alt+K` | drag a region, then ask about it |
+| `Ctrl+Alt+G` | ask with nothing selected |
 
-`Ctrl+Shift+<letter>` is heavily reserved by browsers and IDEs (`Ctrl+Shift+C` is Inspect Element in
-every Chromium browser), so the defaults live under `Ctrl+Alt` instead. If a combo is still taken on
-your machine, PERCH tries a couple of fallbacks automatically and tells you on startup which one
-actually won; override any of them with `PERCH_HOTKEY_SELECTION` / `_SCREENSHOT` / `_PLAIN`, e.g.
-`PERCH_HOTKEY_SELECTION="ctrl+alt+shift+j"`.
+**If a shortcut does nothing, something else owns it.** Windows does not report this — a failed
+registration just lets the keystroke fall through to whatever has focus. Probe your machine:
+
+```bash
+python -m app hotkeys
+```
+
+It prints which combos are free and gives you the exact `set PERCH_HOTKEY_...` lines to use. PERCH
+also tries fallbacks automatically and prints on startup which combo each trigger *actually* got, so
+the running app never lies about its own shortcuts.
+
+`Ctrl+Shift+<letter>` is avoided by default because browsers and IDEs reserve most of it —
+`Ctrl+Shift+C` is Inspect Element in every Chromium browser. Preinstalled vendor utilities and IMEs
+claim a surprising number of `Ctrl+Alt` chords too, which is why the probe exists rather than a
+hardcoded "safe" set.
 | `Esc` | dismiss |
 
 **No model is required to see the whole system work.** With nothing installed, routing, ranking,

@@ -93,21 +93,26 @@ def describe_combo(mods: int, vk: int) -> str:
     return "+".join(names + [key])
 
 
-HOTKEY_SELECTION = parse_combo(os.environ.get("PERCH_HOTKEY_SELECTION", "ctrl+alt+space"))
-HOTKEY_SCREENSHOT = parse_combo(os.environ.get("PERCH_HOTKEY_SCREENSHOT", "ctrl+alt+s"))
-HOTKEY_PLAIN = parse_combo(os.environ.get("PERCH_HOTKEY_PLAIN", "ctrl+alt+p"))
+# Space, S and P under Ctrl+Alt all turned out to be taken on the development
+# machine -- as did Ctrl+Alt+Shift+Space, which on that machine opens an emoji
+# panel. Preinstalled vendor utilities and IMEs claim a lot of the obvious
+# chords, and which ones varies per machine, so the defaults below are plain
+# letters that survive probing far more often. Run `python -m app hotkeys` to
+# see what is actually free where you are.
+HOTKEY_SELECTION = parse_combo(os.environ.get("PERCH_HOTKEY_SELECTION", "ctrl+alt+j"))
+HOTKEY_SCREENSHOT = parse_combo(os.environ.get("PERCH_HOTKEY_SCREENSHOT", "ctrl+alt+k"))
+HOTKEY_PLAIN = parse_combo(os.environ.get("PERCH_HOTKEY_PLAIN", "ctrl+alt+g"))
 
-# Collisions are inherently machine-dependent -- testing on one development
-# machine found Ctrl+Alt+Space itself already owned by something else
-# running there, which is exactly the failure mode this whole scheme exists
-# to survive. So every trigger also carries a short list of fallbacks tried
-# automatically, in order, before giving up -- see HotkeyListener.bind().
+# Collisions are inherently machine-dependent, so every trigger also carries
+# fallbacks tried automatically, in order, before giving up -- see
+# HotkeyListener.bind(). Deliberately non-overlapping between the three
+# triggers, so one falling back cannot steal another's alternate.
 HOTKEY_SELECTION_FALLBACKS = [parse_combo(c) for c in
-    ["ctrl+alt+shift+space", "ctrl+alt+j"]]
+    ["ctrl+alt+shift+j", "ctrl+shift+space"]]
 HOTKEY_SCREENSHOT_FALLBACKS = [parse_combo(c) for c in
-    ["ctrl+alt+shift+s", "ctrl+alt+k"]]
+    ["ctrl+alt+shift+k"]]
 HOTKEY_PLAIN_FALLBACKS = [parse_combo(c) for c in
-    ["ctrl+alt+shift+p", "ctrl+alt+g"]]
+    ["ctrl+alt+shift+g", "ctrl+alt+q"]]
 
 
 def ensure_dirs() -> None:

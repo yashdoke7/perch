@@ -7,6 +7,7 @@
     python -m app import <path>   parse a platform export and propose memory
     python -m app memory          what is stored, by class
     python -m app rebuild         rebuild the index from the files
+    python -m app hotkeys         probe which key combos are free on this machine
 """
 
 from __future__ import annotations
@@ -154,6 +155,54 @@ def cmd_import(argv: list[str]) -> None:
     print("run `python -m app prompts` for the six extraction prompts you can use now.")
 
 
+def cmd_hotkeys() -> None:
+    """Probe which combos this machine will actually give us.
+
+    Collisions are machine-specific and Windows reports them only through
+    RegisterHotKey's return value, so the only reliable answer is to try.
+    """
+    import ctypes
+    from .os_layer.hotkey import MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT
+
+    user32 = ctypes.windll.user32
+    combos = [
+        ("ctrl+alt+space", MOD_CONTROL | MOD_ALT, 0x20),
+        ("ctrl+alt+shift+space", MOD_CONTROL | MOD_ALT | MOD_SHIFT, 0x20),
+        ("ctrl+shift+space", MOD_CONTROL | MOD_SHIFT, 0x20),
+        ("ctrl+alt+j", MOD_CONTROL | MOD_ALT, ord("J")),
+        ("ctrl+alt+k", MOD_CONTROL | MOD_ALT, ord("K")),
+        ("ctrl+alt+g", MOD_CONTROL | MOD_ALT, ord("G")),
+        ("ctrl+alt+q", MOD_CONTROL | MOD_ALT, ord("Q")),
+        ("ctrl+alt+s", MOD_CONTROL | MOD_ALT, ord("S")),
+        ("ctrl+alt+p", MOD_CONTROL | MOD_ALT, ord("P")),
+        ("ctrl+alt+shift+j", MOD_CONTROL | MOD_ALT | MOD_SHIFT, ord("J")),
+        ("ctrl+alt+shift+k", MOD_CONTROL | MOD_ALT | MOD_SHIFT, ord("K")),
+        ("ctrl+alt+shift+g", MOD_CONTROL | MOD_ALT | MOD_SHIFT, ord("G")),
+    ]
+
+    print("Probing hotkey combinations on this machine.")
+    print("Close PERCH before running this, or it will report its own as taken.\n")
+    free = []
+    for name, mods, vk in combos:
+        ok = user32.RegisterHotKey(None, 4242, mods | MOD_NOREPEAT, vk)
+        if ok:
+            user32.UnregisterHotKey(None, 4242)
+            free.append(name)
+            print(f"  {name:<24} free")
+        else:
+            print(f"  {name:<24} TAKEN by another application")
+
+    if free:
+        print("\nUse any of the free ones, for example:\n")
+        picks = (free + free + free)[:3]
+        print(f'  set PERCH_HOTKEY_SELECTION={picks[0]}')
+        print(f'  set PERCH_HOTKEY_SCREENSHOT={picks[1]}')
+        print(f'  set PERCH_HOTKEY_PLAIN={picks[2]}')
+        print("\n  (PowerShell: $env:PERCH_HOTKEY_SELECTION=\"%s\")" % picks[0])
+    else:
+        print("\nNothing free in that list -- try adding Shift, or a function key.")
+
+
 def cmd_rebuild() -> None:
     store = MemoryStore()
     print(f"reindexed {store.rebuild()} items from {store.root}")
@@ -180,6 +229,8 @@ def main() -> None:
     elif cmd == "ablate":
         from .ablate import run
         run()
+    elif cmd == "hotkeys":
+        cmd_hotkeys()
     else:
         print(__doc__)
 

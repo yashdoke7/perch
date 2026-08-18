@@ -76,6 +76,28 @@ class HotkeyListener:
     def stop(self) -> None:
         self._running = False
 
+    def dispatch(self, hotkey_id: int) -> bool:
+        """Fire the callback for a hotkey id. Split out of the message loop so
+        it can be tested without synthesising real WM_HOTKEY messages.
+
+        This exists because the loop previously indexed the binding tuple by
+        position to reach the callback; when the tuple gained a fallback list
+        and changed shape, that index silently went out of range and the
+        IndexError was swallowed by the catch-all below -- the hotkey
+        registered, Windows delivered it, and nothing happened. Unpacking by
+        name makes that class of bug impossible to reintroduce.
+        """
+        binding = self._bindings.get(hotkey_id)
+        if binding is None:
+            return False
+        _candidates, label, callback = binding
+        try:
+            callback()
+            return True
+        except Exception as exc:  # never kill the listener
+            print(f"[hotkey] handler error in {label!r}: {exc}")
+            return False
+
     def _loop(self) -> None:
         registered: list[int] = []
         for hotkey_id, (candidates, label, _) in self._bindings.items():
@@ -109,12 +131,7 @@ class HotkeyListener:
                 # PeekMessage rather than GetMessage so stop() is honoured promptly.
                 if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
                     if msg.message == WM_HOTKEY:
-                        binding = self._bindings.get(msg.wParam)
-                        if binding:
-                            try:
-                                binding[3]()
-                            except Exception as exc:  # never kill the listener
-                                print(f"[hotkey] handler error: {exc}")
+                        self.dispatch(msg.wParam)
                 else:
                     ctypes.windll.kernel32.Sleep(10)
         finally:

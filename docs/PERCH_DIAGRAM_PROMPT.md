@@ -315,7 +315,7 @@ NODES (name, lane, icon, subtitle) -- draw every one of these exactly once:
 
   N1  "USER"                lane 0 (no wash, plain white, top-left corner)
                              person icon, subtitle "selects text in any app"
-  N2  "HOTKEY"               LANE 1, keyboard icon, subtitle "Ctrl+Alt+Space"
+  N2  "HOTKEY"               LANE 1, keyboard icon, subtitle "Ctrl+Alt+J"
   N3  "CAPTURE"               LANE 1, cursor-select icon, subtitle "UI Automation / clipboard"
   N4  "HOST WINDOW"          LANE 1, small window-frame icon, subtitle "HWND saved here"
   N5  "PANEL"                LANE 1, floating-card icon, subtitle "appears beside your work"
@@ -470,7 +470,7 @@ memory, ORANGE (#F0913A) for execution.
 The nine stages, labelled exactly, in this order:
 
 1. BLUE   "USER SELECTS TEXT"      subtext "in any Windows application"
-2. BLUE   "HOTKEY"                 subtext "Ctrl+Alt+Space"
+2. BLUE   "HOTKEY"                 subtext "Ctrl+Alt+J"
 3. BLUE   "CAPTURE"                subtext "UI Automation, clipboard fallback"
 4. PURPLE "PRIVACY DECISION"       subtext "from the source, not the content"
 5. PURPLE "CLASS ROUTING"          subtext "which memory classes are eligible"

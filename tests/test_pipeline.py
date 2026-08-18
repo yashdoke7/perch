@@ -220,6 +220,48 @@ def test_private_mode_never_selects_a_cloud_model():
     assert registry.select(private=True).local
 
 
+# ---------------------------------------------------------------- the hotkeys
+
+def test_hotkey_dispatch_actually_fires_the_callback():
+    """Regression: the message loop used to reach the callback by tuple index.
+
+    When the binding tuple gained a fallback list and changed shape, that
+    index went out of range, and the IndexError was swallowed by the loop's
+    catch-all -- so hotkeys registered, Windows delivered them, and nothing
+    happened. Nothing caught it because no test ever fired a binding.
+    """
+    from app.os_layer import hotkey
+
+    fired = []
+    listener = hotkey.HotkeyListener()
+    hotkey_id = listener.bind(hotkey.MOD_CONTROL | hotkey.MOD_ALT, ord("J"),
+                              lambda: fired.append("fired"), label="selection")
+
+    assert listener.dispatch(hotkey_id) is True
+    assert fired == ["fired"]
+
+
+def test_hotkey_dispatch_survives_a_broken_handler():
+    """A failing callback must not kill the listener thread."""
+    from app.os_layer import hotkey
+
+    def boom():
+        raise RuntimeError("handler exploded")
+
+    listener = hotkey.HotkeyListener()
+    hotkey_id = listener.bind(hotkey.MOD_CONTROL, ord("K"), boom, label="plain")
+    assert listener.dispatch(hotkey_id) is False        # reported, not raised
+    assert listener.dispatch(9999) is False             # unknown id is safe
+
+
+def test_hotkey_combo_parsing_round_trips():
+    from app import config
+
+    mods, vk = config.parse_combo("ctrl+alt+shift+space")
+    assert config.describe_combo(mods, vk) == "Ctrl+Alt+Shift+Space"
+    assert config.parse_combo("ctrl+alt+j") == config.parse_combo("CTRL+ALT+J")
+
+
 def test_private_mode_does_not_even_declare_network_tools():
     from app.tools import registry as toolreg
     offered = {s["function"]["name"] for s in toolreg.schemas(allow_network=False)}
