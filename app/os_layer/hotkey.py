@@ -25,35 +25,83 @@ user32 = ctypes.windll.user32
 
 
 class HotkeyListener:
-    """Registers chords and calls back on a background thread."""
+    """Registers chords and calls back on a background thread.
+
+    RegisterHotKey must be called from the same thread that pumps its
+    messages, so it happens inside _loop() on the background thread --
+    which means the caller of bind() cannot know synchronously whether
+    registration actually succeeded. That gap used to be hidden: the old
+    bind() returned nothing, callers collected a list of Nones, and
+    "if not all(ok)" was always true regardless of what actually happened,
+    so it printed a warning on every run whether or not anything was wrong.
+    start() now blocks briefly on an Event and returns the real per-binding
+    result, keyed by the label passed to bind(), so a caller can report
+    exactly which chord failed -- which matters a lot in practice: a failed
+    registration doesn't error, it just lets the keystroke fall straight
+    through to whatever window has focus, silently.
+    """
 
     def __init__(self) -> None:
-        self._bindings: dict[int, tuple[int, int, Callable[[], None]]] = {}
+        # value: (candidate (mods,vk) pairs in priority order, label, callback)
+        self._bindings: dict[int, tuple[list[tuple[int, int]], str, Callable[[], None]]] = {}
         self._next_id = 1
         self._thread: threading.Thread | None = None
         self._running = False
+        self.results: dict[str, bool] = {}
+        # Which candidate actually won, per label -- may differ from the
+        # first one requested, since fallbacks are tried in order. None if
+        # every candidate was already owned by something else.
+        self.assigned: dict[str, tuple[int, int] | None] = {}
+        self._ready = threading.Event()
 
-    def bind(self, modifiers: int, vk: int, callback: Callable[[], None]) -> None:
-        """Register a chord. Call before start()."""
-        self._bindings[self._next_id] = (modifiers | MOD_NOREPEAT, vk, callback)
+    def bind(self, modifiers: int, vk: int, callback: Callable[[], None],
+             label: str = "", fallbacks: list[tuple[int, int]] | None = None) -> int:
+        """Register a chord, with optional fallback (mods, vk) pairs tried in
+        order if the primary one is already owned. Call before start().
+        Returns the internal id."""
+        hotkey_id = self._next_id
         self._next_id += 1
+        candidates = [(modifiers, vk), *(fallbacks or [])]
+        self._bindings[hotkey_id] = (candidates, label or f"hotkey-{hotkey_id}", callback)
+        return hotkey_id
 
-    def start(self) -> None:
+    def start(self, wait_for_registration: bool = True, timeout: float = 2.0) -> dict[str, bool]:
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="perch-hotkeys")
         self._thread.start()
+        if wait_for_registration:
+            self._ready.wait(timeout)
+        return dict(self.results)
 
     def stop(self) -> None:
         self._running = False
 
     def _loop(self) -> None:
         registered: list[int] = []
-        for hotkey_id, (mods, vk, _) in self._bindings.items():
-            if user32.RegisterHotKey(None, hotkey_id, mods, vk):
-                registered.append(hotkey_id)
-            else:
-                # Almost always means another application already owns the chord.
-                print(f"[hotkey] could not register id={hotkey_id} (already taken?)")
+        for hotkey_id, (candidates, label, _) in self._bindings.items():
+            won: tuple[int, int] | None = None
+            for mods, vk in candidates:
+                if user32.RegisterHotKey(None, hotkey_id, mods | MOD_NOREPEAT, vk):
+                    won = (mods, vk)
+                    registered.append(hotkey_id)
+                    break
+
+            self.results[label] = won is not None
+            self.assigned[label] = won
+
+            if won is None:
+                # Almost always means another application already owns every
+                # candidate chord (a browser extension, PowerToys, a second
+                # PERCH instance). Windows does not error on this -- the
+                # keystroke just falls through to whatever has focus instead.
+                print(f"[hotkey] {label!r}: none of its {len(candidates)} candidate "
+                     "combo(s) could be registered -- every one is already owned by "
+                     "another application. Set its PERCH_HOTKEY_* environment "
+                     "variable to something else.")
+            elif won != candidates[0]:
+                print(f"[hotkey] {label!r}: primary combo was already taken; "
+                     "fell back to an alternate (see the trigger list below).")
+        self._ready.set()
 
         msg = wintypes.MSG()
         try:
@@ -64,7 +112,7 @@ class HotkeyListener:
                         binding = self._bindings.get(msg.wParam)
                         if binding:
                             try:
-                                binding[2]()
+                                binding[3]()
                             except Exception as exc:  # never kill the listener
                                 print(f"[hotkey] handler error: {exc}")
                 else:

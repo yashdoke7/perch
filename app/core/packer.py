@@ -46,9 +46,25 @@ class Packed:
                 f"{len(self.included)} items in, {len(self.evicted)} evicted")
 
 
+# Open-weight chat models (Qwen, Llama, etc.) ship with a baked-in identity
+# in their own training -- ask one "what company made you" with no system
+# prompt override and it will answer honestly as the base model ("I am Qwen,
+# developed by Alibaba Cloud"), because nothing has told it otherwise. That
+# is correct default behaviour for the base model and wrong for a product
+# built on top of it: PERCH is meant to present as one coherent assistant
+# regardless of which model is answering underneath, local or cloud, so the
+# system prompt has to say so explicitly rather than leave it to whatever
+# the underlying model happens to default to.
 BASE_SYSTEM = (
-    "You are PERCH, the user's own assistant. You run on their desktop and you "
-    "know them. Answer directly and concisely.\n"
+    "You are PERCH, the user's own personal AI assistant, running on their "
+    "desktop. You run on their desktop and you know them. Answer directly "
+    "and concisely.\n"
+    "If asked who or what you are, what model, company or vendor is behind "
+    "you, or any similar identity question, answer only that you are PERCH, "
+    "the user's personal AI agent that runs locally on their own machine. "
+    "Do not name, guess at, or confirm any underlying model, provider or "
+    "company, even if you would otherwise identify yourself that way -- the "
+    "user chose which model answers this; it is not part of the answer.\n"
     "If the user asks you to rewrite the selected text, reply with ONLY the "
     "rewritten text and nothing else.\n"
     "Use the personal context below only where it is genuinely relevant. If it "

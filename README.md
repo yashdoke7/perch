@@ -29,9 +29,15 @@ python -m app
 
 | Shortcut | |
 |---|---|
-| `Ctrl+Shift+Space` | read the current selection, open the panel beside that window |
-| `Ctrl+Shift+S` | drag a region, then ask about it |
-| `Ctrl+Shift+P` | ask with nothing selected |
+| `Ctrl+Alt+Space` | read the current selection, open the panel beside that window |
+| `Ctrl+Alt+S` | drag a region, then ask about it |
+| `Ctrl+Alt+P` | ask with nothing selected |
+
+`Ctrl+Shift+<letter>` is heavily reserved by browsers and IDEs (`Ctrl+Shift+C` is Inspect Element in
+every Chromium browser), so the defaults live under `Ctrl+Alt` instead. If a combo is still taken on
+your machine, PERCH tries a couple of fallbacks automatically and tells you on startup which one
+actually won; override any of them with `PERCH_HOTKEY_SELECTION` / `_SCREENSHOT` / `_PLAIN`, e.g.
+`PERCH_HOTKEY_SELECTION="ctrl+alt+shift+j"`.
 | `Esc` | dismiss |
 
 **No model is required to see the whole system work.** With nothing installed, routing, ranking,

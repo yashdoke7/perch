@@ -31,25 +31,40 @@ def run_agent() -> None:
     pipeline = Pipeline(MemoryStore())
 
     listener = hotkey.HotkeyListener()
-    mods = hotkey.MOD_CONTROL | hotkey.MOD_SHIFT
-    ok = [
-        listener.bind(mods, config.HOTKEY_SELECTION[1], lambda: _requests.put("selection")),
-        listener.bind(mods, config.HOTKEY_SCREENSHOT[1], lambda: _requests.put("screenshot")),
-        listener.bind(mods, config.HOTKEY_PLAIN[1], lambda: _requests.put("plain")),
+    triggers = [
+        ("selection", config.HOTKEY_SELECTION, config.HOTKEY_SELECTION_FALLBACKS,
+         "ask about the current selection", lambda: _requests.put("selection")),
+        ("screenshot", config.HOTKEY_SCREENSHOT, config.HOTKEY_SCREENSHOT_FALLBACKS,
+         "screenshot a region and ask", lambda: _requests.put("screenshot")),
+        ("plain", config.HOTKEY_PLAIN, config.HOTKEY_PLAIN_FALLBACKS,
+         "ask with nothing selected", lambda: _requests.put("plain")),
     ]
-    listener.start()
+    for label, (mods, vk), fallbacks, _desc, callback in triggers:
+        listener.bind(mods, vk, callback, label=label, fallbacks=fallbacks)
+    listener.start()  # blocks briefly; listener.assigned then holds the REAL, live combo
 
     counts = pipeline.store.counts()
     total = sum(counts.values())
     print("PERCH — prototype")
     print(f"  memory      {total} items  {counts or '(empty — run: python -m app seed)'}")
-    print(f"  embeddings  {__import__('app.memory.embed', fromlist=['x']).backend()}")
-    print("  Ctrl+Shift+Space   ask about the current selection")
-    print("  Ctrl+Shift+S       screenshot a region and ask")
-    print("  Ctrl+Shift+P       ask with nothing selected")
-    print("  Ctrl+C here        quit\n")
-    if not all(ok):
-        print("  ! at least one hotkey was already taken by another app\n")
+    print(f"  embeddings  {__import__('app.memory.embed', fromlist=['x']).backend()}\n")
+
+    any_failed = False
+    for label, combo, _fallbacks, desc, _cb in triggers:
+        won = listener.assigned.get(label)
+        if won is not None:
+            live = config.describe_combo(*won)
+            note = "" if won == combo else f"  (fell back from {config.describe_combo(*combo)})"
+            print(f"  {live:<22} {desc}{note}")
+        else:
+            any_failed = True
+            print(f"  {config.describe_combo(*combo):<22} {desc}   "
+                 "! NOT REGISTERED -- every candidate combo is already owned "
+                 "by another app; keystrokes reach IT instead")
+    print("  Ctrl+C here            quit\n")
+    if any_failed:
+        print("  Set PERCH_HOTKEY_SELECTION / _SCREENSHOT / _PLAIN to a different combo, "
+             "e.g. PERCH_HOTKEY_SELECTION=\"ctrl+alt+shift+j\", and restart.\n")
 
     try:
         while True:
