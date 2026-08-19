@@ -23,11 +23,13 @@ that nothing in the card ever uses.
 
 from __future__ import annotations
 
+import json
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
 from tkinter import ttk
 
+from .. import config
 from ..core.pipeline import Pipeline, Request, Response
 from ..memory import classes as mc
 from ..os_layer import inject, winapi
@@ -56,8 +58,38 @@ CLASS_COLOR = {
 }
 
 PANEL_W = 460
+PANEL_H = 640
+MIN_W, MIN_H = 360, 420
 PAD = 16
 RADIUS = 16
+GRIP = 16          # size of the bottom-right resize handle
+
+# Where the user last put the panel. An overrideredirect window has no title
+# bar, so drag and resize are implemented by hand below -- and once someone has
+# positioned it deliberately, auto-placing it somewhere else on the next
+# trigger is worse than useless. Persisted so it survives a restart.
+GEOMETRY_FILE = config.ROOT / "panel_geometry.json"
+
+# One type scale, used everywhere, instead of ad-hoc sizes per widget.
+# Segoe UI Variable is the Windows 11 UI face; Segoe UI is the fallback and
+# is present on every supported Windows version.
+_UI = "Segoe UI Variable Display"
+_UI_FALLBACK = "Segoe UI"
+_MONO = "Cascadia Mono"
+_MONO_FALLBACK = "Consolas"
+
+TYPE = {
+    "brand":   (13, "bold"),
+    "title":   (11, "bold"),
+    "body":    (10, "normal"),
+    "small":   (9,  "normal"),
+    "label":   (8,  "bold"),     # section headers: ASK, MEMORY USED
+    "micro":   (8,  "normal"),
+    "chip":    (8,  "normal"),
+    "tiny":    (7,  "normal"),
+}
+
+_family_cache: dict[str, str] = {}
 
 # The pipeline stages the tracker lights up, in order. These deliberately
 # mirror the architecture diagram's Stage 2 and 3 -- same names, same order --
@@ -72,9 +104,44 @@ STAGES = [
 ]
 
 
-def _font(size: int, weight: str = "normal") -> tuple:
-    family = "Segoe UI Semibold" if weight == "bold" else "Segoe UI"
-    return (family, size, "bold" if weight == "bold" and family == "Segoe UI" else "normal")
+def _resolve_family(preferred: str, fallback: str) -> str:
+    """Pick the nicer face when the OS has it, without crashing when it does not."""
+    key = preferred
+    if key not in _family_cache:
+        try:
+            available = set(tkfont.families())
+        except Exception:
+            available = set()
+        _family_cache[key] = preferred if preferred in available else fallback
+    return _family_cache[key]
+
+
+def _font(size: int, weight: str = "normal", mono: bool = False) -> tuple:
+    family = (_resolve_family(_MONO, _MONO_FALLBACK) if mono
+              else _resolve_family(_UI, _UI_FALLBACK))
+    return (family, size, weight)
+
+
+def _t(role: str, mono: bool = False) -> tuple:
+    """Font for a role in the type scale -- use this, not raw sizes."""
+    size, weight = TYPE[role]
+    return _font(size, weight, mono=mono)
+
+
+def _load_geometry() -> dict:
+    try:
+        return json.loads(GEOMETRY_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_geometry(x: int, y: int, w: int, h: int) -> None:
+    try:
+        GEOMETRY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GEOMETRY_FILE.write_text(
+            json.dumps({"x": x, "y": y, "w": w, "h": h}), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _rounded_rect(canvas: tk.Canvas, x1, y1, x2, y2, r, **kw):
@@ -113,73 +180,184 @@ class Panel:
         # the card, so the area outside the rounded polygon shows the desktop.
         self.root.wm_attributes("-transparentcolor", KEY)
 
-        self.height = min(680, self.root.winfo_screenheight() - 100)
+        self.width, self.height = PANEL_W, PANEL_H
+        self._drag_from = None
+        self._resize_from = None
         self._place_beside(host)
 
-        self.canvas = tk.Canvas(self.root, width=PANEL_W, height=self.height,
+        self.canvas = tk.Canvas(self.root, width=self.width, height=self.height,
                                 bg=KEY, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        _rounded_rect(self.canvas, 1, 1, PANEL_W - 1, self.height - 1, RADIUS,
-                     fill=BG, outline=BORDER, width=1)
+        _rounded_rect(self.canvas, 1, 1, self.width - 1, self.height - 1, RADIUS,
+                     fill=BG, outline=BORDER, width=1, tags="card")
 
         self.private = tk.BooleanVar(value=False)
         self._build(selection, capture_method)
+
+        # Resize grip, bottom-right. An overrideredirect window gets no native
+        # border, so this is the only way to offer resizing at all.
+        self._grip = self.canvas.create_polygon(
+            self.width - GRIP - 6, self.height - 6,
+            self.width - 6, self.height - GRIP - 6,
+            self.width - 6, self.height - 6,
+            fill=BORDER, outline="")
+        self.canvas.tag_bind(self._grip, "<Button-1>", self._resize_start)
+        self.canvas.tag_bind(self._grip, "<B1-Motion>", self._resize_move)
+        self.canvas.tag_bind(self._grip, "<ButtonRelease-1>", self._persist_geometry)
+        self.canvas.tag_bind(self._grip, "<Enter>",
+                             lambda _e: self.canvas.configure(cursor="size_nw_se"))
+        self.canvas.tag_bind(self._grip, "<Leave>",
+                             lambda _e: self.canvas.configure(cursor=""))
 
         self.root.bind("<Escape>", lambda _e: self._close())
 
     # ---------------------------------------------------------------- layout
 
     def _place_beside(self, host: winapi.WindowInfo | None) -> None:
+        """Position the panel, preferring the user's own choice.
+
+        Order of preference:
+          1. wherever the user last dragged/resized it -- a deliberate choice
+             beats any heuristic, and re-placing it every trigger is the most
+             annoying thing a floating panel can do
+          2. in the free space beside the host window, if there is any
+          3. edge-docked, when the host is maximised and there is no free space
+        """
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+
+        saved = _load_geometry()
+        if saved:
+            w = max(MIN_W, min(int(saved.get("w", PANEL_W)), sw))
+            h = max(MIN_H, min(int(saved.get("h", PANEL_H)), sh))
+            # Clamp back on-screen: a monitor may have been unplugged since.
+            x = max(0, min(int(saved.get("x", 0)), sw - w))
+            y = max(0, min(int(saved.get("y", 0)), sh - h))
+            self.width, self.height = w, h
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
+            return
+
+        w = PANEL_W
+        h = min(PANEL_H, sh - 100)
         if host is None:
-            x, y = sw - PANEL_W - 40, 70
+            x, y = sw - w - 40, 70
         else:
             gap = 14
-            if host.right + gap + PANEL_W <= sw:
+            if host.right + gap + w <= sw:          # free space to the right
                 x = host.right + gap
-            elif host.left - gap - PANEL_W >= 0:
-                x = host.left - gap - PANEL_W
-            else:
-                x = sw - PANEL_W - 20
-            y = max(30, min(host.top + 30, sh - self.height - 40))
-        self.root.geometry(f"{PANEL_W}x{self.height}+{int(x)}+{int(y)}")
+            elif host.left - gap - w >= 0:          # free space to the left
+                x = host.left - gap - w
+            else:                                    # host is maximised
+                x = sw - w - 20
+            y = max(30, min(host.top + 30, sh - h - 40))
+
+        self.width, self.height = w, h
+        self.root.geometry(f"{w}x{h}+{int(x)}+{int(y)}")
+
+    # ------------------------------------------------------- drag and resize
+
+    def _bind_drag(self, widget) -> None:
+        """Make `widget` a drag handle for the whole window."""
+        widget.bind("<Button-1>", self._drag_start, add="+")
+        widget.bind("<B1-Motion>", self._drag_move, add="+")
+        widget.bind("<ButtonRelease-1>", self._persist_geometry, add="+")
+        widget.configure(cursor="fleur")
+
+    def _drag_start(self, event) -> None:
+        self._drag_from = (event.x_root, event.y_root,
+                           self.root.winfo_x(), self.root.winfo_y())
+
+    def _drag_move(self, event) -> None:
+        if not getattr(self, "_drag_from", None):
+            return
+        px, py, wx, wy = self._drag_from
+        self.root.geometry(f"+{wx + event.x_root - px}+{wy + event.y_root - py}")
+
+    def _resize_start(self, event) -> None:
+        self._resize_from = (event.x_root, event.y_root,
+                             self.root.winfo_width(), self.root.winfo_height())
+
+    def _resize_move(self, event) -> None:
+        if not getattr(self, "_resize_from", None):
+            return
+        px, py, w0, h0 = self._resize_from
+        w = max(MIN_W, w0 + event.x_root - px)
+        h = max(MIN_H, h0 + event.y_root - py)
+        self.width, self.height = w, h
+        self.root.geometry(f"{w}x{h}")
+        self._relayout()
+
+    def _persist_geometry(self, _event=None) -> None:
+        try:
+            _save_geometry(self.root.winfo_x(), self.root.winfo_y(),
+                           self.root.winfo_width(), self.root.winfo_height())
+        except tk.TclError:
+            pass
+
+    def _relayout(self) -> None:
+        """Redraw the rounded card and reflow contents after a resize."""
+        try:
+            w, h = self.root.winfo_width(), self.root.winfo_height()
+            self.canvas.configure(width=w, height=h)
+            self.canvas.delete("card")
+            _rounded_rect(self.canvas, 1, 1, w - 1, h - 1, RADIUS,
+                         fill=BG, outline=BORDER, width=1, tags="card")
+            self.canvas.tag_lower("card")
+            self.canvas.coords(self._body_window, w // 2, h // 2)
+            self.canvas.itemconfigure(self._body_window,
+                                      width=w - 2 * PAD, height=h - 2 * PAD)
+            self.canvas.coords(self._grip,
+                               w - GRIP - 6, h - 6,
+                               w - 6, h - GRIP - 6,
+                               w - 6, h - 6)
+            self.canvas.tag_raise(self._grip)
+        except (tk.TclError, AttributeError):
+            pass
 
     def _card(self, parent, **kw):
         f = tk.Frame(parent, bg=kw.pop("bg", CARD), **kw)
         return f
 
-    def _label(self, parent, text, fg=MUTED, size=9, weight="normal", **kw):
+    def _label(self, parent, text, fg=MUTED, role="small", **kw):
         lbl = tk.Label(parent, text=text, bg=kw.pop("bg", BG), fg=fg,
-                       font=_font(size, weight), anchor="w", justify="left", **kw)
+                       font=_t(role, mono=kw.pop("mono", False)),
+                       anchor="w", justify="left", **kw)
         return lbl
 
     def _build(self, selection: str, capture_method: str) -> None:
         outer = tk.Frame(self.canvas, bg=BG)
-        self.canvas.create_window(PANEL_W // 2, self.height // 2, window=outer,
-                                  width=PANEL_W - 2 * PAD, height=self.height - 2 * PAD)
+        self._body_window = self.canvas.create_window(
+            self.width // 2, self.height // 2, window=outer,
+            width=self.width - 2 * PAD, height=self.height - 2 * PAD)
         outer.pack_propagate(False)
 
         # ---- header: brand, privacy pill, close --------------------------
+        # The header doubles as the title bar: overrideredirect removed the
+        # real one, so this is what the user grabs to move the panel.
         header = tk.Frame(outer, bg=BG)
         header.pack(fill="x")
-        self._label(header, "◆ PERCH", ACCENT, 12, "bold").pack(side="left")
+        brand = self._label(header, "◆ PERCH", ACCENT, "brand")
+        brand.pack(side="left")
         tk.Button(header, text="✕", command=self._close, bg=BG, fg=MUTED,
                  activebackground=CARD, activeforeground=FG, bd=0,
-                 font=_font(10), cursor="hand2").pack(side="right")
+                 font=_t("body"), cursor="hand2").pack(side="right")
         self.privacy_pill = tk.Label(header, text="cloud allowed", bg=CARD_ALT, fg=MUTED,
-                                     font=_font(8), padx=8, pady=2)
+                                     font=_t("micro"), padx=8, pady=2)
         self.privacy_pill.pack(side="right", padx=(0, 8))
+        self._bind_drag(header)
+        self._bind_drag(brand)
 
         method = {"uia": "UI Automation", "clipboard": "clipboard",
                   "none": "nothing captured"}.get(capture_method, capture_method)
         src = self.host.title[:38] if self.host else "(unknown)"
-        self._label(outer, f"{src}  ·  via {method}", size=8).pack(fill="x", pady=(6, 8))
+        prov = self._label(outer, f"{src}  ·  via {method}", role="tiny", mono=True)
+        prov.pack(fill="x", pady=(6, 10))
+        self._bind_drag(prov)
 
         if selection.strip():
             sel_card = self._card(outer)
             sel_card.pack(fill="x", pady=(0, 10))
             box = tk.Text(sel_card, height=3, wrap="word", bg=CARD, fg=FG, relief="flat",
-                          font=_font(9), padx=10, pady=8, bd=0,
+                          font=_t("small"), padx=10, pady=8, bd=0,
                           highlightthickness=1, highlightbackground=BORDER,
                           highlightcolor=BORDER)
             box.insert("1.0", selection)
@@ -193,19 +371,19 @@ class Panel:
             warn = tk.Frame(outer, bg=CARD, highlightthickness=1,
                             highlightbackground=WARN)
             warn.pack(fill="x", pady=(0, 10))
-            self._label(warn, "  no text captured from that window", WARN, 8,
+            self._label(warn, "  no text captured from that window", WARN, "micro",
                        bg=CARD).pack(fill="x", pady=(5, 0))
             self._label(warn, "  ask anything anyway, or re-select and retry",
-                       MUTED, 7, bg=CARD).pack(fill="x", pady=(0, 5))
+                       MUTED, "tiny", bg=CARD).pack(fill="x", pady=(0, 5))
 
         # ---- ask row --------------------------------------------------------
         ask_row = tk.Frame(outer, bg=BG)
         ask_row.pack(fill="x", pady=(0, 6))
-        self._label(ask_row, "ASK", MUTED, 8, "bold").pack(side="left")
+        self._label(ask_row, "ASK", MUTED, "label").pack(side="left")
         chk = tk.Checkbutton(
             ask_row, text="🔒 Private", variable=self.private, bg=BG, fg=WARN,
             selectcolor=CARD, activebackground=BG, activeforeground=WARN,
-            font=_font(8), bd=0, highlightthickness=0, cursor="hand2",
+            font=_t("micro"), bd=0, highlightthickness=0, cursor="hand2",
         )
         chk.pack(side="right")
 
@@ -213,7 +391,7 @@ class Panel:
                               highlightbackground=BORDER, highlightcolor=ACCENT)
         entry_card.pack(fill="x", pady=(0, 8))
         self.prompt = tk.Entry(entry_card, bg=CARD, fg=FG, insertbackground=FG,
-                               relief="flat", font=_font(11), bd=0)
+                               relief="flat", font=_t("title"), bd=0)
         self.prompt.pack(fill="x", ipady=8, padx=10)
         self.prompt.bind("<Return>", lambda _e: self._ask())
         self.prompt.bind("<FocusIn>", lambda _e: entry_card.configure(highlightbackground=ACCENT))
@@ -231,13 +409,13 @@ class Panel:
         self.stage_pills: dict[str, tk.Label] = {}
         for key, text in STAGES:
             pill = tk.Label(self.stage_wrap, text=text, bg=CARD, fg=BORDER,
-                            font=_font(7), padx=6, pady=2)
+                            font=_t("tiny"), padx=6, pady=2)
             pill.pack(side="left", padx=(0, 3))
             self.stage_pills[key] = pill
-        self.stage_detail = self._label(outer, "", MUTED, 7)
+        self.stage_detail = self._label(outer, "", MUTED, "tiny")
         self.stage_detail.pack(fill="x", pady=(0, 4))
 
-        self.status = self._label(outer, "Enter to ask", size=8)
+        self.status = self._label(outer, "Enter to ask", role="micro")
         self.status.pack(fill="x", pady=(0, 8))
 
         # ---- answer -----------------------------------------------------
@@ -245,12 +423,12 @@ class Panel:
                             highlightbackground=BORDER)
         out_card.pack(fill="both", expand=True, pady=(0, 8))
         self.out = tk.Text(out_card, wrap="word", bg=CARD, fg=FG,
-                           insertbackground=FG, relief="flat", font=_font(10),
+                           insertbackground=FG, relief="flat", font=_t("body"),
                            padx=10, pady=10, bd=0)
         self.out.pack(fill="both", expand=True)
 
         # ---- provenance: the auditability claim, made visible ------------
-        self._label(outer, "MEMORY USED", MUTED, 8, "bold").pack(anchor="w")
+        self._label(outer, "MEMORY USED", MUTED, "label").pack(anchor="w")
         self.chip_wrap = tk.Frame(outer, bg=BG)
         self.chip_wrap.pack(fill="x", pady=(4, 10))
         self._empty_chip_note()
@@ -265,18 +443,18 @@ class Panel:
     def _button(self, parent, label, action):
         b = tk.Button(parent, text=label, command=lambda: self._deliver(action),
                      bg=CARD_ALT, fg=FG, activebackground=BORDER, activeforeground=FG,
-                     bd=0, font=_font(9), padx=10, pady=6, cursor="hand2")
+                     bd=0, font=_t("small"), padx=10, pady=6, cursor="hand2")
         return b
 
     def _primary_button(self, parent, label, action):
         b = tk.Button(parent, text=label, command=lambda: self._deliver(action),
                      bg=ACCENT, fg="#0c1420", activebackground="#4a92e8",
-                     activeforeground="#0c1420", bd=0, font=_font(9, "bold"),
+                     activeforeground="#0c1420", bd=0, font=_t("small"),
                      padx=12, pady=6, cursor="hand2")
         return b
 
     def _empty_chip_note(self) -> None:
-        self._label(self.chip_wrap, "(nothing asked yet)", size=8).pack(anchor="w")
+        self._label(self.chip_wrap, "(nothing asked yet)", role="micro").pack(anchor="w")
 
     def _close(self) -> None:
         """Idempotent: the user can dismiss, and the main loop can also close
@@ -428,7 +606,7 @@ class Panel:
             child.destroy()
 
         if trace is None:
-            self._label(self.chip_wrap, "(no trace)", size=8).pack(anchor="w")
+            self._label(self.chip_wrap, "(no trace)", role="micro").pack(anchor="w")
             return
 
         if not trace.admitted and not trace.dropped and not trace.rejected_classes:
@@ -440,14 +618,14 @@ class Panel:
         extra = len(trace.admitted) - self.MAX_ADMITTED_SHOWN
         if extra > 0:
             self._label(self.chip_wrap, f"+ {extra} more admitted (see console)",
-                       MUTED, 7).pack(anchor="w", pady=(0, 4))
+                       MUTED, "tiny").pack(anchor="w", pady=(0, 4))
 
         if trace.abstained:
             note = tk.Frame(self.chip_wrap, bg=BG)
             note.pack(fill="x", pady=(4, 4))
-            tk.Label(note, text="●", fg=BAD, bg=BG, font=_font(8)).pack(side="left")
+            tk.Label(note, text="●", fg=BAD, bg=BG, font=_t("micro")).pack(side="left")
             self._label(note, " nothing cleared its floor — answering from general "
-                        "knowledge", BAD, 8).pack(side="left")
+                        "knowledge", BAD, "micro").pack(side="left")
 
         for scored in trace.dropped[: self.MAX_DROPPED_SHOWN]:
             self._chip(scored.item.cls, scored.item.title, scored.score,
@@ -455,7 +633,7 @@ class Panel:
         extra_d = len(trace.dropped) - self.MAX_DROPPED_SHOWN
         if extra_d > 0:
             self._label(self.chip_wrap, f"+ {extra_d} more dropped (see console)",
-                       MUTED, 7).pack(anchor="w")
+                       MUTED, "tiny").pack(anchor="w")
 
     def _chip(self, cls_name: str, title: str, score: float,
               admitted: bool, reason: str = "") -> None:
@@ -472,12 +650,12 @@ class Panel:
         inner.pack(padx=6, pady=3)
         dot_fg = colour if admitted else BORDER
         tk.Label(inner, text="●", fg=dot_fg, bg=chip["bg"],
-                font=_font(7)).pack(side="left", padx=(0, 4))
+                font=_t("tiny")).pack(side="left", padx=(0, 4))
 
         lock = "🔒 " if mc.is_private_class(cls_name) else ""
         lbl = tk.Label(inner, text=f"{lock}{cls_name}  {title[:36]}", bg=chip["bg"],
                        fg=FG if admitted else MUTED,
-                       font=_font(8, "bold" if admitted else "normal"))
+                       font=_t("chip"))
         if not admitted:
             f = tkfont.Font(lbl, lbl.cget("font"))
             f.configure(overstrike=1)
@@ -486,9 +664,9 @@ class Panel:
 
         if admitted:
             tk.Label(inner, text=f" {score:.2f}", bg=chip["bg"], fg=MUTED,
-                     font=_font(7)).pack(side="left")
+                     font=_t("tiny")).pack(side="left")
         elif reason:
-            self._label(wrap, f"    {reason}", MUTED, 7).pack(anchor="w")
+            self._label(wrap, f"    {reason}", MUTED, "tiny").pack(anchor="w")
 
     def _deliver(self, action: str) -> None:
         if not self.answer:
