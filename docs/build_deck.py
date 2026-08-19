@@ -320,15 +320,19 @@ S("What Already Runs - The Prototype", [
      "layers are familiar work; whether a desktop app can genuinely reach into other applications "
      "was not. It can, and it is running."),
     ("OS layer, verified:", " system-wide hotkey; selection read from other applications via UI "
-     "Automation with clipboard fallback; region screenshot; panel docked beside the host window via "
-     "GetForegroundWindow and GetWindowRect; focus restore and paste-back."),
+     "Automation with clipboard fallback; region screenshot; panel docked beside the host; focus "
+     "restore and paste-back."),
     ("Agent layer, running:", " six typed memory classes stored as Markdown with a SQLite index; "
      "intent and class routing; ranker; admission scorer; budget packer; model registry with local "
-     "and cloud routes; and a tool surface covering web, files, documents, OCR and Python."),
-    ("Verification:", " 21 tests pass with no model, no GPU and no network. The ablation runs on a "
+     "and cloud routes; and a tool surface covering web, files, documents, OCR and Python. The tool "
+     "loop runs on the local model too, so the full agent works at zero cost."),
+    ("What the demo shows while it runs:", " answers stream token by token, and a live tracker lights "
+     "up each pipeline stage in turn - route, rank, gate, pack, model - with the gate reporting what "
+     "it admitted and dropped. It turns GREEN when it admits and RED when it abstains, because a "
+     "deliberate refusal is the contribution working, not a failure."),
+    ("Verification:", " 25 tests pass with no model, no GPU and no network. The ablation runs on a "
      "seeded memory set and prints every routing, ranking and admission decision."),
-    ("Nothing here needs a driver, a kernel hook, an OS modification or a special permission.", ""),
-], size=10)
+], size=9.5)
 
 S("Layer 3 - Six Memory Classes, Open Tags", [
     ("The design rule: few classes, many tags.", " A class is a routing decision, and every class we "
@@ -566,6 +570,10 @@ S("Expected Results and Honest Limitations", [
      "size, with the largest margin on the smallest model. Zero leakage on OP-Bench irrelevance "
      "without losing identity context. Sub-second trigger-to-first-token locally. Zero bytes in "
      "private mode."),
+    ("Known limitation - the per-class floors are tuned, not fitted.", " Cosine means different things "
+     "to different embedders - we measured unrelated text at 0.35-0.41 on a real model but near 0.10 "
+     "on the fallback. Scores are rescaled against a measured per-backend baseline; the honest next "
+     "step is fitting floors on held-out labelled data."),
     ("Known limitation - six classes is a design choice, not a derivation.", " The defence is that "
      "classes are a routing device and each one is a new failure mode, so the burden is on adding a "
      "seventh. And it is testable: E1 measures whether routing helps or hurts."),
@@ -573,11 +581,11 @@ S("Expected Results and Honest Limitations", [
      "undocumented JSON that can change without notice. Parsers are isolated per platform and fail "
      "loudly, the extraction-prompt path works with no export at all, and the review screen means a "
      "broken parser produces nothing rather than garbage."),
-    ("Known limitation - UI Automation coverage varies by application.", " That is why the clipboard "
-     "fallback exists and why the coverage table is a documented deliverable."),
+    ("Known limitation - UI Automation coverage varies by application.", " Hence the clipboard "
+     "fallback, and why the coverage table is a documented deliverable."),
     ("Practical risk:", " screen-reading behaviour can trip antivirus heuristics, so the installer "
-     "must be signed and all capture must stay user-initiated."),
-], size=9.5)
+     "must be signed and capture must stay user-initiated."),
+], size=9.0)
 
 S("Conclusion", [
     ("The problem is not which AI you use.", " It is that your context is trapped inside whichever one "
@@ -588,7 +596,7 @@ S("Conclusion", [
      "your work, writing back into the document you were in, remembering what you told it once, and "
      "running on whichever model you choose - including one that never leaves your machine."),
     ("The risky part is already built.", " The OS layer runs. So does the pipeline: routing, ranking, "
-     "admission, packing, tools, and 21 passing tests."),
+     "admission, packing, tools, and 25 passing tests."),
     ("The technical core is the retrieval gate and the budget packer", " - a calibration problem and "
      "a constrained-allocation problem, evaluated with four ablations on public benchmarks."),
     ("You pay for four AI assistants. None of them know you, and none of them will tell each other. "

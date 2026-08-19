@@ -747,7 +747,8 @@ item is forced local automatically** — with the panel saying why.
 | Phase | Deliverable | Status |
 |---|---|---|
 | **0** | OS-layer proof — three triggers, positioning, paste-back | **done** |
-| **1** | **Working prototype**: OS layer + panel + API model + typed memory + ranker/admission + tools | **in progress** |
+| **1** | **Working prototype**: OS layer + panel + model routing + typed memory + ranker/admission/packer + tool loop + streaming + live stage tracker | **done — 25 tests** |
+| **1a** | Panel chrome: drag, resize, persisted geometry, provenance chips | **done** |
 | 2 | Import: export parsers, class extraction, review screen | |
 | 3 | Budget packer + registry, local and cloud, private mode | |
 | 4 | Full view, sessions, screenshots, OCR | |
@@ -813,6 +814,29 @@ device and each one is a new failure mode, so the burden is on adding a seventh,
 **True.** They are undocumented JSON that can change without notice. Mitigation: parsers are isolated
 per platform and fail loudly; the extraction-prompt path (§3.5) works with **no** export at all; and the
 review screen means a broken parser produces nothing rather than garbage.
+
+### 6. ⚠️ "Your per-class floors are numbers you tuned by hand."
+**The most honest weakness, and we found it ourselves by breaking it.**
+
+The floors in §4.4 are raw cosine values, and **cosine means different things to different embedders**.
+Measured here: `nomic-embed-text` scores *completely unrelated* text at **0.35–0.41**, while the hashed
+bag-of-words fallback scores the same pairs near **0.10**. A floor tuned against one silently becomes
+meaningless against the other — which is exactly what happened when the embedding service stopped and
+the system fell back without saying so.
+
+**Two mitigations, and one honest limit:**
+
+1. Scores are **rescaled against a per-backend measured baseline** before being compared to any floor,
+   so a floor means the same thing regardless of which embedder is live.
+2. The system **reports which backend answered** and warns loudly when it is on the fallback.
+3. **The limit:** the fallback's related and unrelated distributions genuinely *overlap* — an unrelated
+   pair at 0.178 against a related pair at 0.071 — so no constant can separate them. That is
+   representational, not a tuning problem. **The fallback is a stand-in for demonstrating the pipeline,
+   never for reporting a number.**
+
+> **Where this goes next:** floors should be *fitted* on held-out labelled data per class, not chosen.
+> That turns E4 from an ablation into a calibration result, and it is the most defensible answer to
+> "did you just pick these numbers?" — because the honest current answer is *yes, guided by measurement*.
 
 ---
 

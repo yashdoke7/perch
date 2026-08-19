@@ -32,6 +32,10 @@ python -m app
 | `Ctrl+Alt+J` | read the current selection, open the panel beside that window |
 | `Ctrl+Alt+K` | drag a region, then ask about it |
 | `Ctrl+Alt+G` | ask with nothing selected |
+| `Esc` | dismiss the panel |
+
+**Drag the header to move it, the bottom-right corner to resize.** Where you put it is remembered, so
+it reopens there instead of being re-placed on every trigger.
 
 **If a shortcut does nothing, something else owns it.** Windows does not report this — a failed
 registration just lets the keystroke fall through to whatever has focus. Probe your machine:
@@ -48,7 +52,6 @@ the running app never lies about its own shortcuts.
 `Ctrl+Shift+C` is Inspect Element in every Chromium browser. Preinstalled vendor utilities and IMEs
 claim a surprising number of `Ctrl+Alt` chords too, which is why the probe exists rather than a
 hardcoded "safe" set.
-| `Esc` | dismiss |
 
 **No model is required to see the whole system work.** With nothing installed, routing, ranking,
 admission, packing and the OS layer all run and print their decisions; only generation is stubbed.
@@ -109,7 +112,7 @@ app/
   tools/      web · files · docs · python · memory                the agent surface
   ingest/     exports · prompts                                   ChatGPT / Claude / Gemini
   ui/         panel                                               the product surface
-tests/        21 tests, no model or network required
+tests/        25 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 

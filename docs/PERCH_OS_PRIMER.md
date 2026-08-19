@@ -170,6 +170,28 @@ possibly be the answer makes the test unambiguous.
 **Synthesising the keystroke** uses `SendInput` (or `keybd_event`): press Ctrl, press C, release C,
 release Ctrl. Windows delivers it to the focused window exactly as if the user had typed it.
 
+### ⚠️ The trap: your own hotkey is still held down
+
+**This one cost real debugging time, and it is invisible when it happens.**
+
+PERCH is summoned by a chord — `Ctrl+Alt+J`. At the instant the callback runs, the user is *still
+physically holding Ctrl and Alt*. If you synthesise `Ctrl+C` right then, the modifiers **combine**:
+the target application receives **`Ctrl+Alt+C`**, which is not copy in any normal app.
+
+The clipboard never changes. The sentinel poll times out. Capture returns empty. The panel opens with
+no selection, the model is asked about text it never received — and it answers *"which company do you
+mean?"*, which reads like the model being stupid when the entire fault is in the OS layer.
+
+```
+   before sending any synthetic chord:
+       wait until GetAsyncKeyState says Ctrl, Alt, Shift and Win are all up
+       (with a timeout -- if the user is leaning on a key, force-release it)
+```
+
+> **This is a large part of why Path A is preferred.** UI Automation reads the selection through the
+> accessibility tree and synthesises nothing, so it is immune. Path B is the fallback for apps that
+> expose no text — which is exactly when this bites.
+
 > **Design rule: try A, fall back to B, record which one worked, per application.** The panel displays
 > the method, so the user always knows how their text was obtained.
 
@@ -292,6 +314,39 @@ is why the Phase 1 prototype can implement both sides in Python and still be a f
 | 15 | **OS** | user presses Replace → clipboard → refocus HWND → `Ctrl+V` → restore clipboard |
 | 16 | **Core** | capped Episodic write. **Nothing enters typed memory without the user asking** |
 
+## 5.2a ⚠️ One UI thread, one event loop — never block it
+
+**The second trap, and it looks like "the app got slow" rather than like a bug.**
+
+A GUI toolkit runs a single event loop on one thread. Every trigger, every repaint, every keystroke is
+serviced by that loop. **So anything that blocks it blocks everything.**
+
+The first version gave each panel its own root window and ran its own loop:
+
+```
+   trigger → build panel → panel.mainloop()      ← blocks here until closed
+           → (only now) look for the next trigger
+```
+
+Which means: while a panel is open, **the hotkey cannot be serviced at all.** The keypress is
+registered by Windows, delivered to our listener thread, put on the queue — and then sits there,
+because the thread that drains the queue is parked inside a nested loop. Since a panel stays up until
+dismissed, and the natural habit is to read the answer and then trigger again somewhere else, the
+first shortcut felt instant and every one after it felt broken. Dismissing the panel then fired the
+whole backlog at once.
+
+**The rule:**
+
+> **One root window and one `mainloop()` for the life of the process.** Extra windows are *children*
+> of it. Long work goes on a worker thread and marshals results back with `after(0, …)`. Anything that
+> needs to wait for a child window uses `wait_window()`, which pumps the **existing** loop — never a
+> second nested one.
+
+**Symptom to recognise:** the first interaction is fine, later ones queue up and arrive in a burst.
+That is always a blocked event loop, never a slow component — and profiling the components (as we did:
+capture flat at ~270 ms, panel construction *falling* from 774 ms to 78 ms) will show nothing wrong,
+because nothing is wrong with them.
+
 ## 5.3 Where each part of the source tree lives
 
 ```
@@ -314,6 +369,9 @@ is why the Phase 1 prototype can implement both sides in Python and still be a f
 | Clipboard locked by another process | retry with backoff; if it still fails, open the panel with no selection |
 | `SetForegroundWindow` refused | **do not paste.** Leave the answer on the clipboard and say so |
 | Model unreachable | fall through the registry: local → cloud → clear error. **Never silently switch a private request to cloud** |
+| Hotkey registration fails | Windows does **not** error — the keystroke just falls through to whatever has focus. Check `RegisterHotKey`'s return value, try fallback combos, and print which chord each trigger actually got. `python -m app hotkeys` probes what is free |
+| Summoning modifiers still held | wait for Ctrl/Alt/Shift/Win to come up before synthesising any chord — see §2 |
+| Later triggers queue up and arrive in a burst | a blocked event loop, not a slow component — see §5.2a |
 
 ---
 
