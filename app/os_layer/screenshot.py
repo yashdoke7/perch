@@ -24,12 +24,20 @@ class Shot:
     height: int
 
 
-def grab_region(save_dir: Path) -> Shot | None:
-    """Show the region selector; return None if the user cancels with Escape."""
+def grab_region(save_dir: Path, master: "tk.Misc | None" = None) -> Shot | None:
+    """Show the region selector; return None if the user cancels with Escape.
+
+    Runs as a Toplevel under the application's single root when one is given,
+    and waits with wait_window() rather than mainloop(). A nested mainloop()
+    here would block the root's own loop for as long as the overlay is up,
+    which is the same stall that used to make every trigger after the first
+    feel frozen -- see the note in ui/panel.py.
+    """
 
     box: dict[str, int] = {}
 
-    root = tk.Tk()
+    owns_root = master is None
+    root = tk.Tk() if owns_root else tk.Toplevel(master)
     root.attributes("-fullscreen", True)
     root.attributes("-alpha", 0.25)
     root.attributes("-topmost", True)
@@ -65,7 +73,11 @@ def grab_region(save_dir: Path) -> Shot | None:
     canvas.bind("<ButtonRelease-1>", on_release)
     root.bind("<Escape>", lambda _e: root.destroy())
 
-    root.mainloop()
+    if owns_root:
+        root.mainloop()
+    else:
+        root.grab_set()          # modal while the region is being dragged
+        root.wait_window(root)   # pumps the EXISTING loop, does not nest one
 
     if not box or box["right"] - box["left"] < 4 or box["bottom"] - box["top"] < 4:
         return None

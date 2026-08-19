@@ -15,6 +15,7 @@ from __future__ import annotations
 import queue
 import sys
 import time
+import tkinter as tk
 
 from . import config
 from .core.pipeline import Pipeline, Request
@@ -23,6 +24,11 @@ from .os_layer import capture, hotkey, screenshot, winapi
 from .ui.panel import Panel
 
 _requests: "queue.Queue[str]" = queue.Queue()
+
+# How often the root's loop drains the hotkey queue. 25 ms is imperceptible
+# to a user and costs nothing measurable, and it bounds the worst-case delay
+# between pressing the chord and the capture starting.
+POLL_MS = 25
 
 
 # ------------------------------------------------------------------ the agent
@@ -78,44 +84,84 @@ def run_agent() -> None:
         print("  Set PERCH_HOTKEY_SELECTION / _SCREENSHOT / _PLAIN to a different combo, "
              "e.g. PERCH_HOTKEY_SELECTION=\"ctrl+alt+shift+j\", and restart.\n")
 
-    try:
+    # ONE root, ONE mainloop, for the life of the process.
+    #
+    # The old loop called Panel.show(), which ran its own mainloop() and
+    # blocked here until that panel closed -- so a hotkey pressed while a
+    # panel was open could not be serviced at all. It sat in the queue, and
+    # the whole backlog then fired at once on dismissal. Now the root's loop
+    # always runs and drains the queue on a timer, so a trigger is picked up
+    # within one poll interval whether or not a panel is already up.
+    root = tk.Tk()
+    root.withdraw()
+
+    state: dict[str, Panel | None] = {"panel": None}
+
+    def poll() -> None:
+        try:
+            kind = _requests.get_nowait()
+        except queue.Empty:
+            root.after(POLL_MS, poll)
+            return
+
+        # Coalesce a burst. Holding the chord, or pressing it repeatedly while
+        # nothing appeared, should summon ONE panel -- not a queue of them.
+        dropped = 0
         while True:
             try:
-                kind = _requests.get(timeout=0.2)
+                _requests.get_nowait()
+                dropped += 1
             except queue.Empty:
-                continue
-            try:
-                _handle(pipeline, kind)
-            except Exception as exc:                       # noqa: BLE001
-                print(f"[error] {kind}: {exc}")
-            time.sleep(0.1)
+                break
+        if dropped:
+            print(f"[trigger] coalesced {dropped} repeated press(es)")
+
+        try:
+            previous = state["panel"]
+            if previous is not None and previous.alive:
+                previous.close()      # a new trigger replaces the old panel
+            state["panel"] = _handle(pipeline, kind, root)
+        except Exception as exc:                           # noqa: BLE001
+            print(f"[error] {kind}: {exc}")
+        root.after(POLL_MS, poll)
+
+    root.after(POLL_MS, poll)
+    try:
+        root.mainloop()
     except KeyboardInterrupt:
         print("\nbye")
     finally:
         listener.stop()
 
 
-def _handle(pipeline: Pipeline, kind: str) -> None:
+def _handle(pipeline: Pipeline, kind: str, root: "tk.Tk") -> "Panel | None":
     # Snapshot the host BEFORE any of our own UI exists, or GetForegroundWindow
     # returns us. See PERCH_OS_PRIMER.md §1.1.
     host = winapi.foreground_window()
 
+    started = time.perf_counter()
+
     if kind == "selection":
         sel = capture.capture_selection(host)
+        panel = Panel(pipeline, sel.text, sel.method, host, master=root)
         print(f"[trigger] selection  host={host.title[:40]!r} "
-              f"method={sel.method} chars={len(sel.text)}")
-        Panel(pipeline, sel.text, sel.method, host).show()
+              f"method={sel.method} chars={len(sel.text)} "
+              f"({(time.perf_counter() - started) * 1000:.0f} ms to panel)")
 
     elif kind == "screenshot":
-        shot = screenshot.grab_region(config.CAPTURES)
+        shot = screenshot.grab_region(config.CAPTURES, master=root)
         if shot is None:
             print("[trigger] screenshot cancelled")
-            return
+            return None
         note = f"(screenshot: {shot.width}x{shot.height}px saved to {shot.path.name})"
-        Panel(pipeline, note, "none", host).show()
+        panel = Panel(pipeline, note, "none", host, master=root)
 
     else:
-        Panel(pipeline, "", "none", host).show()
+        panel = Panel(pipeline, "", "none", host, master=root)
+        print(f"[trigger] plain      ({(time.perf_counter() - started) * 1000:.0f} ms to panel)")
+
+    panel.show()
+    return panel
 
 
 # ------------------------------------------------------------- subcommands

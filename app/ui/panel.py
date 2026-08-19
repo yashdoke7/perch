@@ -86,7 +86,7 @@ def _rounded_rect(canvas: tk.Canvas, x1, y1, x2, y2, r, **kw):
 
 class Panel:
     def __init__(self, pipeline: Pipeline, selection: str, capture_method: str,
-                 host: winapi.WindowInfo | None) -> None:
+                 host: winapi.WindowInfo | None, master: tk.Misc) -> None:
         self.pipeline = pipeline
         self.selection = selection
         self.host = host
@@ -95,7 +95,16 @@ class Panel:
         self._dots_job = None
         self._streamed = False
 
-        self.root = tk.Tk()
+        # A Toplevel under one long-lived root, NOT its own tk.Tk().
+        #
+        # Each panel used to be a fresh tk.Tk() whose show() ran mainloop(),
+        # which blocked the caller until the panel closed. That serialised the
+        # whole app behind whichever panel happened to be open: a hotkey press
+        # while a panel was up could not be serviced at all, it just queued,
+        # and every queued press then fired at once when the panel was finally
+        # dismissed. First trigger instant, everything after it apparently
+        # frozen. One root with one mainloop, owned by __main__, fixes it.
+        self.root = tk.Toplevel(master)
         self.root.title("PERCH")
         self.root.attributes("-topmost", True)
         self.root.overrideredirect(True)
@@ -270,9 +279,22 @@ class Panel:
         self._label(self.chip_wrap, "(nothing asked yet)", size=8).pack(anchor="w")
 
     def _close(self) -> None:
+        """Idempotent: the user can dismiss, and the main loop can also close
+        this panel to replace it with a newer trigger. Either order is fine."""
         if self._dots_job:
-            self.root.after_cancel(self._dots_job)
-        self.root.destroy()
+            try:
+                self.root.after_cancel(self._dots_job)
+            except tk.TclError:
+                pass
+            self._dots_job = None
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
+
+    # Public alias -- __main__ closes the previous panel when a new trigger
+    # arrives, so it does not reach for a private method.
+    close = _close
 
     # ----------------------------------------------------------------- logic
 
@@ -478,4 +500,15 @@ class Panel:
         print(f"[deliver] {'ok' if ok else 'failed'}: {message}")
 
     def show(self) -> None:
-        self.root.mainloop()
+        """Present the panel. Returns immediately -- the root's mainloop, owned
+        by __main__, keeps running so the next trigger is serviced at once."""
+        self.root.deiconify()
+        self.root.lift()
+        self.prompt.focus_force()
+
+    @property
+    def alive(self) -> bool:
+        try:
+            return bool(self.root.winfo_exists())
+        except tk.TclError:
+            return False
