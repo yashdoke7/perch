@@ -529,6 +529,23 @@ S("Base Paper - PAUSE, ACM SIGKDD 2026", [
      "address operating within a fixed token budget across heterogeneous models."),
 ], size=10)
 
+S("Personal AI Is a Recognised Category, Not a Framing We Chose", [
+    ("The concern this slide answers:", " if we do not explicitly separate ourselves, a reviewer maps "
+     "any memory-carrying agent onto the nearest known project and stops looking further."),
+    ("SIGKDD 2026 itself runs a dedicated workshop on this.", " PILA 2026 - Personal Intelligence in "
+     "the Agentic AI Era, co-located with SIGKDD, 10 August 2026. Its scope: personalized agents, user "
+     "modeling, memory and retrieval, adaptive planning, privacy and deployment. The top venue in this "
+     "space has already drawn this exact line."),
+    ("And it is not just a workshop.", " A Scrutable Assistant for Time Management is a full peer- "
+     "reviewed paper at ACM UMAP 2026 - a 34-year-old conference series dedicated to user modeling and "
+     "personalization. It studies a personal assistant users can scrutinise, down to the model behind "
+     "its suggestions - independently arrived at, published, and close enough to our own admission "
+     "gate that the field already has a name for it: scrutability."),
+    ("So the line is not ours to defend alone.", " Personal AI assistants are a distinct, actively "
+     "reviewed category at ACM's own venues in 2026, separate from memory-architecture research. We are "
+     "answering a question the field already treats as its own."),
+], size=10)
+
 S("The Gap - What We Claim and What We Do Not", [
     ("We do NOT claim inventing selection-triggered AI", " - Highlight and Click to Do exist."),
     ("We do NOT claim inventing agent memory", " - Mem0, Zep and Letta are mature."),
@@ -581,6 +598,8 @@ S("Conclusion", [
 S("References - Peer-Reviewed Spine", [
     ("[1] PAUSE: A User-Centric Benchmark for Personal AI Assistants in Unified Service Environments.",
      " Chen, Shi, Wang, Chen, Niu. ACM SIGKDD 2026, Jeju Island. - BASE PAPER"),
+    ("[1b] \"...Exploring User Perspectives on a Scrutable Assistant for Time Management.\"",
+     " Landerberg, Flatmo, Said. ACM UMAP 2026, Full Paper. - second personal-AI anchor, non-benchmark"),
     ("[2] A Survey on the Memory Mechanism of LLM-based Agents.",
      " ACM Transactions on Information Systems 43(6), 2025. DOI 10.1145/3748302"),
     ("[3] Evaluating Very Long-Term Conversational Memory of LLM Agents (LoCoMo).",

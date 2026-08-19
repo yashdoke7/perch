@@ -22,7 +22,8 @@ load-bearing citation is peer-reviewed**, and the preprints are all support.
 
 | Work | Venue | Role in this project |
 |---|---|---|
-| **PAUSE** | **ACM SIGKDD 2026** (KDD '26), Jeju Island, 9–13 Aug 2026 | ★ **BASE PAPER** |
+| **PAUSE** | **ACM SIGKDD 2026** (KDD '26), Jeju Island, 9–13 Aug 2026 · DOI [10.1145/3770855.3817565](https://doi.org/10.1145/3770855.3817565) — ⚠️ **doi.org redirects to dl.acm.org, confirming a real ACM record, but ACM's bot-wall blocks automated verification of the listing itself. Check it yourself via a browser with ACM DL access before relying on it.** | ★ **BASE PAPER** |
+| **"…Scrutable Assistant for Time Management"** — Landerberg, Flatmo, Said | **ACM UMAP 2026** (34th Conf. on User Modeling, Adaptation and Personalization), Full Paper · DOI [10.1145/3774935.3806186](https://doi.org/10.1145/3774935.3806186) | ★ **non-benchmark personal-AI evidence** — see §1.3 |
 | **A Survey on the Memory Mechanism of LLM-based Agents** | **ACM TOIS 43(6), 2025** · DOI [10.1145/3748302](https://doi.org/10.1145/3748302) | L3 definition and taxonomy |
 | **LoCoMo** — *Evaluating Very Long-Term Conversational Memory of LLM Agents* | **ACL 2024** · [aclanthology.org/2024.acl-long.747](https://aclanthology.org/2024.acl-long.747/) | benchmark (E3) |
 | **LongMemEval** | **ICLR 2025** | benchmark (E3), incl. abstention |
@@ -32,8 +33,28 @@ load-bearing citation is peer-reviewed**, and the preprints are all support.
 | *Bridging Intuitive Associations and Deliberate Recall* | **Findings of ACL 2025** | dual-path recall |
 | *Memory in the LLM Era: Modular Architectures* | **VLDB 2026** | modular decomposition |
 
-> **Nine peer-reviewed works, covering the base paper, both evaluation benchmarks, the gating prior
-> art, and the memory foundations.** That is the spine. Everything below is supporting evidence.
+> **Ten peer-reviewed works now, covering the base paper, both evaluation benchmarks, the gating prior
+> art, the memory foundations, and — genuinely useful — a second ACM 2026 paper about a personal
+> assistant that is not a benchmark at all.** That is the spine. Everything below is supporting evidence.
+
+## 0.1a ★ The category defence: "personal AI" is not something we invented to dodge NeuroGram
+
+If the panel maps this to NeuroGram on sight, the strongest response is not an argument — it is
+pointing at what the top venues are already doing:
+
+- **ACM SIGKDD 2026 itself runs a co-located workshop**, **PILA 2026 — "Personal Intelligence in the
+  Agentic AI Era"** (10 Aug 2026, Jeju) — https://pila26-workshop.github.io/. Its stated scope is
+  *"personalized agents, user modeling, and human-centered AI"*, with topics spanning memory/retrieval,
+  adaptive planning, privacy and deployment. ⚠️ **Non-archival** — its papers are not in the ACM
+  proceedings, so it is evidence of the category's legitimacy, not itself a citable result.
+- **ACM UMAP** is an entire 34-year-old conference series about exactly this axis (user modeling,
+  adaptation, personalization), sponsored by SIGCHI and SIGWEB. §0.1's UMAP 2026 paper is one accepted
+  result from it, not an isolated one — the venue itself is the evidence.
+
+> **The sentence:** *"Personal AI is not a framing we chose to avoid a conflict — SIGKDD ran an entire
+> workshop on it this year, and UMAP has been the dedicated venue for user modeling and personalization
+> for over three decades. We are answering a question the field already treats as distinct from memory
+> architecture."*
 
 ## 0.2 arXiv-only *because it is recent* — legitimate, and stated as such
 
@@ -158,6 +179,47 @@ devices and used for personal assistance."*
 
 ⚠️ **arXiv-only, so not the base paper** — but it is the vocabulary we use, and it proves "personal LLM
 agent" is an established research category, not a product idea we invented.
+
+## ✅ ★ Second anchor, and this one *is* peer-reviewed — the Scrutable Assistant paper
+
+*"'As Long as It Does What I Want, I'd Be Happy to Trust It': Exploring User Perspectives on a Scrutable
+Assistant for Time Management"* — Annie Landerberg, Kari Flatmo, Alan Said.
+**ACM UMAP 2026** (34th ACM Conference on User Modeling, Adaptation and Personalization), Full Paper.
+DOI [10.1145/3774935.3806186](https://doi.org/10.1145/3774935.3806186).
+
+**Why this matters more than its topic suggests:** it is a personal-AI paper that is **not** a
+benchmark, **is** ACM-published, and its core idea is close to ours by name. The paper studies
+**SIPA4TM**, a purpose-built personal time-management assistant, through a 22-participant task-based
+study, with the explicit design goal that users can **scrutinise both its suggestions and the
+underlying user model** — not just get an answer, but see why.
+
+> **That is our admission gate's whole pitch, independently arrived at by a different team, published
+> at a dedicated personalization venue.** *"Every drop carries a reason"* is not a phrase we invented in
+> a vacuum — UMAP 2026 is publishing full papers on exactly this property, under the name
+> **scrutability**. Cite it, and consider adopting "scrutable" as a second word for what §4.4 of the
+> architecture calls "declarative, auditable admission" — it is the term the field already uses.
+
+**How to use it:**
+
+| ✅ Safe | ❌ Not safe |
+|---|---|
+| A **peer-reviewed precedent** for user-facing transparency in a personal assistant | Claiming it as *our* base paper — its domain (time management) is unrelated to ours |
+| The word **"scrutable"** as a second, field-standard name for admission-gate transparency | Implying it evaluates memory retrieval or gating the way we do — it does not; its contribution is the user study, not a retrieval mechanism |
+
+⚠️ **Read the full paper before quoting the study's findings** — only the abstract-level summary above
+is verified; the 22-participant results themselves have not been opened in this session.
+
+## ⚠️ Related, unconfirmed venue — PersonalAlign
+
+*"PersonalAlign: Hierarchical Implicit Intent Alignment for Personalized GUI Agent with Long-Term
+User-Centric Records"* — arXiv 2601.09636 (Jan 2026). Introduces a Hierarchical Intent Memory Agent
+that maintains **continuously updating personal memory** to resolve vague instructions and anticipate
+routines from long-term user records — directly adjacent to our Project/Career/Personal classes and the
+ranker's recency signal.
+
+🟡 Its own GitHub repository is named `ACL26-PersonalAlign`, which suggests **Findings of ACL 2026** as
+the target venue, but I have not confirmed acceptance independently. **Treat as arXiv-only until
+verified** — do not repeat the "ACL 2026" venue as fact without checking.
 
 ---
 
@@ -512,6 +574,8 @@ visibly user-initiated.
 
 | # | What | Why it matters |
 |---|---|---|
+| **★new** | **PAUSE's ACM DL listing** — https://dl.acm.org/doi/10.1145/3770855.3817565 | ⚠️ **could not verify in this session — ACM's bot-wall blocks automated access.** Check via a normal logged-in browser or institutional ACM DL access **before the review**. The DOI itself resolves to a real ACM domain, which is partial evidence, not confirmation |
+| **★new** | **Scrutable Assistant, ACM UMAP 2026** — https://doi.org/10.1145/3774935.3806186 | genuinely worth reading in full — its user-study findings on trust and scrutability could strengthen §4.4 (private mode) and the admission-gate framing, beyond what the abstract-level summary here covers |
 | 0 | **LoCoMo, ACL 2024** — https://aclanthology.org/2024.acl-long.747/ | **the numbers in our deck do not match the abstract.** Resolve before the review — see the warning in Part 5 |
 | 1 | **MemGate** full text — https://arxiv.org/html/2606.06054v1 | closest prior art to C2. **Read before writing the contribution slide** |
 | 2 | **OP-Bench** full text — https://arxiv.org/html/2601.13722v1 | our primary evaluation. Need the exact scoring protocol |
@@ -521,3 +585,4 @@ visibly user-initiated.
 | 6 | π-Bench — https://arxiv.org/abs/2605.14678 | the proactivity contrast |
 | 7 | LongMemEval-V2 (2605.12493), StreamMemBench (2606.14571) | harder settings |
 | 8 | Confirm the Windows Semantic Index details from **Microsoft's own Build 2026 material**, not secondary coverage | §6.1 is load-bearing and currently 🟡 |
+| 9 | **PersonalAlign** venue — is it really ACL 2026? — https://arxiv.org/abs/2601.09636 | currently inferred from a GitHub repo name only, not confirmed |
