@@ -87,7 +87,7 @@ def complete(model: Model, system: str, prompt: str) -> str:
 
 def complete_with_tools(model: Model, system: str, prompt: str,
                         allow_network: bool, log: list[str],
-                        on_token=None, on_tool=None) -> str:
+                        on_token=None, on_tool=None, on_confirm=None) -> str:
     """The agent loop: model -> tool call -> result -> model, until it stops.
 
     Both routes get the loop, not just the cloud one -- a student running
@@ -95,6 +95,10 @@ def complete_with_tools(model: Model, system: str, prompt: str,
     file tools and (network permitting) web_search, not a single-shot
     completion with no access to the tool surface described in the
     architecture.
+
+    on_confirm(name, args) -> bool is carried through to dispatch() and is
+    what makes "read is free, write asks" real. Passing nothing means
+    confirming tools are refused rather than silently allowed.
     """
     if not model.tools:
         return complete(model, system, prompt)
@@ -106,15 +110,18 @@ def complete_with_tools(model: Model, system: str, prompt: str,
     ]
 
     if model.provider == "openai_compatible":
-        return _openai_tool_loop(model, messages, schemas, allow_network, log)
+        return _openai_tool_loop(model, messages, schemas, allow_network, log,
+                                 on_confirm=on_confirm)
     if model.provider == "ollama":
         return _ollama_tool_loop(model, messages, schemas, allow_network, log,
-                                 on_token=on_token, on_tool=on_tool)
+                                 on_token=on_token, on_tool=on_tool,
+                                 on_confirm=on_confirm)
     return complete(model, system, prompt)
 
 
 def _openai_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
-                      allow_network: bool, log: list[str]) -> str:
+                      allow_network: bool, log: list[str],
+                      on_confirm=None) -> str:
     for _ in range(MAX_TOOL_STEPS):
         try:
             out = _post(f"{config.API_BASE.rstrip('/')}/chat/completions", {
@@ -138,7 +145,8 @@ def _openai_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
                 args = json.loads(call["function"].get("arguments") or "{}")
             except json.JSONDecodeError:
                 args = {}
-            result = toolreg.dispatch(name, args, allow_network=allow_network)
+            result = toolreg.dispatch(name, args, allow_network=allow_network,
+                                      on_confirm=on_confirm)
             log.append(f"{name}({', '.join(f'{k}={v!r}' for k, v in args.items())[:80]})")
             messages.append({
                 "role": "tool",
@@ -151,7 +159,7 @@ def _openai_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
 
 def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
                       allow_network: bool, log: list[str],
-                      on_token=None, on_tool=None) -> str:
+                      on_token=None, on_tool=None, on_confirm=None) -> str:
     """Same shape as the OpenAI loop, over /api/chat, but streaming.
 
     Two differences from the OpenAI path: Ollama has no tool_choice knob,
@@ -204,7 +212,8 @@ def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
                     args = {}
             if on_tool:
                 on_tool(name)
-            result = toolreg.dispatch(name, args, allow_network=allow_network)
+            result = toolreg.dispatch(name, args, allow_network=allow_network,
+                                      on_confirm=on_confirm)
             log.append(f"{name}({', '.join(f'{k}={v!r}' for k, v in args.items())[:80]})")
             messages.append({"role": "tool", "content": result[:4000]})
 

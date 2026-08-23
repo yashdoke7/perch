@@ -14,6 +14,10 @@ What it must show, and why each one is not decoration:
                     a learned gate cannot offer, so it has to be visible
     model           which model answered, local or cloud
 
+It is also where "read is free, write asks" (architecture Part VI) is actually
+asked. _confirm_tool below is the approval callback the pipeline hands to the
+tool loop; without a UI supplying one, confirming tools are refused outright.
+
 Rendering notes: vanilla tkinter has no rounded windows or drop shadows, so the
 polish here is two real Windows tricks rather than a new dependency -- a
 Canvas-drawn rounded card, made to actually show rounded corners on the desktop
@@ -27,12 +31,14 @@ import json
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
+from tkinter import messagebox
 from tkinter import ttk
 
 from .. import config
 from ..core.pipeline import Pipeline, Request, Response
 from ..memory import classes as mc
 from ..os_layer import inject, winapi
+from ..tools import registry as toolreg
 
 # ------------------------------------------------------------------ palette
 
@@ -508,12 +514,66 @@ class Panel:
 
         def work() -> None:
             try:
-                response = self.pipeline.run(req, on_stage=on_stage, on_token=on_token)
+                response = self.pipeline.run(req, on_stage=on_stage, on_token=on_token,
+                                             on_confirm=self._confirm_tool)
             except Exception as exc:                      # noqa: BLE001
                 response = Response(answer=f"(pipeline error: {exc})", trace=None)  # type: ignore[arg-type]
             self.root.after(0, lambda: self._show(response))
 
         threading.Thread(target=work, daemon=True).start()
+
+    # --------------------------------------------------- write confirmation
+
+    # How long the worker will wait for an answer before treating silence as
+    # "no". Generous, because the user may be reading the snippet -- but not
+    # unbounded, because a worker thread blocked forever on a dialog that was
+    # destroyed with its panel is a leak that only shows up under demo stress.
+    CONFIRM_TIMEOUT_S = 120.0
+
+    def _confirm_tool(self, name: str, args: dict) -> bool:
+        """Ask before a tool changes state outside PERCH. Called on the WORKER.
+
+        tkinter may only be touched from the thread that owns the loop, so
+        this marshals the dialog over with after(0, ...) and blocks the
+        worker on an Event until the answer comes back. The dialog itself
+        uses wait_window internally, which pumps the EXISTING loop -- never a
+        second nested one (PERCH_OS_PRIMER.md §5.2a).
+
+        Every path that is not an explicit yes returns False: a closed panel,
+        a destroyed window, a timeout, or an exception inside the dialog. The
+        one direction this must never fail in is "allowed by accident".
+        """
+        decided = threading.Event()
+        answer = {"ok": False}
+
+        def ask() -> None:
+            try:
+                answer["ok"] = bool(messagebox.askyesno(
+                    "PERCH — allow this?",
+                    f"The model wants to run:\n\n{toolreg.describe_call(name, args)}\n\n"
+                    "This changes something outside PERCH. Allow it?",
+                    parent=self.root,
+                    default=messagebox.NO,
+                    icon=messagebox.WARNING,
+                ))
+            except Exception:                             # noqa: BLE001
+                answer["ok"] = False                      # a broken dialog is a "no"
+            finally:
+                decided.set()
+
+        if not self.alive:
+            return False
+        try:
+            self.root.after(0, ask)
+        except tk.TclError:                               # window already gone
+            return False
+
+        if not decided.wait(self.CONFIRM_TIMEOUT_S):
+            print(f"[tool] {name} refused: confirmation timed out")
+            return False
+        if not answer["ok"]:
+            print(f"[tool] {name} refused by the user")
+        return answer["ok"]
 
     # ------------------------------------------------------- stage tracker
 

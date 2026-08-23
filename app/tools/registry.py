@@ -2,12 +2,22 @@
 
 Policy, enforced here rather than documented and hoped for:
 
-    1. READ IS FREE, WRITE ASKS. Anything changing state outside PERCH is
-       marked confirm=True and the UI gates it.
+    1. READ IS FREE, WRITE ASKS. Anything that changes state outside PERCH --
+       or runs arbitrary code -- is marked confirm=True, and dispatch() will
+       not run it without an approval callback that returns True. The default
+       is REFUSAL: a caller that passes no callback cannot invoke a confirming
+       tool at all.
     2. EVERY CALL IS LOGGED and shown in the panel.
     3. PRIVATE MODE REMOVES THE NETWORK TOOLS. A privacy guarantee that leaks
        through a search query is not a guarantee -- so web_search and web_fetch
        are not merely refused at call time, they are never declared.
+
+Rule 1 was documented here for some time while dispatch() ignored the flag
+entirely, which meant a model could overwrite any file under the user's home
+directory, or write memory silently, with no prompt -- directly contradicting
+architecture Part VI and the "nothing is stored silently from ordinary chat"
+rule in §3.4. Deny-by-default is the fix, and it is enforced in ONE place so
+that a new tool marked confirm=True is gated without touching either tool loop.
 """
 
 from __future__ import annotations
@@ -168,9 +178,32 @@ def doc_parse(path: str = "") -> str:
 # --------------------------------------------------------------------- compute
 
 @tool("run_python", "Run a short Python snippet for arithmetic, dates or data "
-      "munging. No network. Print the result.",
-      {"code": _s("python source; use print() for output")})
+      "munging. Print the result. The user is asked before it runs.",
+      {"code": _s("python source; use print() for output")}, confirm=True)
 def run_python(code: str = "") -> str:
+    """Run a snippet in a separate interpreter.
+
+    ⚠️ THIS IS NOT A SANDBOX, and calling it one would be the dangerous kind
+    of wrong. `-I` gives isolated mode: it ignores PYTHONPATH, PYTHON* env
+    vars and the user site directory, so the snippet cannot be hijacked by
+    the environment. That is all it does. The snippet still runs with this
+    process's full privileges -- it can read and write any file the user can,
+    open sockets, and start other programs. The 10s timeout bounds how long
+    it does so, not what it is allowed to do.
+
+    Two consequences, both deliberate:
+
+      * confirm=True, so it cannot run without the user approving THIS
+        snippet. That is the real containment, and it is the same mechanism
+        file_write uses.
+      * it is a normal (non-network) tool, so it is still declared in private
+        mode. A snippet that opens a socket would defeat that -- which is
+        precisely why a human reads the code before it runs.
+
+    A genuine sandbox (subprocess with dropped privileges, no network
+    namespace, a read-only filesystem view) is the right fix and is not
+    something to fake with a flag.
+    """
     try:
         proc = subprocess.run(
             [sys.executable, "-I", "-c", code],
@@ -252,12 +285,51 @@ def schemas(allow_network: bool = True) -> list[dict]:
     return out
 
 
-def dispatch(name: str, args: dict, allow_network: bool = True) -> str:
+def describe_call(name: str, args: dict) -> str:
+    """One human-readable line: what this call will actually do.
+
+    Shown in the confirmation prompt, so the user approves a specific action
+    rather than an abstract tool name. Values are truncated because a
+    file_write body can be arbitrarily long and the dialog is small.
+    """
+    t = TOOLS.get(name)
+    if t is None:
+        return f"unknown tool {name!r}"
+    shown = []
+    for k, v in args.items():
+        text = str(v).replace("\n", " ")
+        shown.append(f"{k}={text[:120]}{'…' if len(text) > 120 else ''}")
+    return f"{name}({', '.join(shown)})"
+
+
+def dispatch(name: str, args: dict, allow_network: bool = True,
+             on_confirm: Callable[[str, dict], bool] | None = None) -> str:
+    """Run a tool, subject to the three policy rules above.
+
+    on_confirm(name, args) -> bool is how a UI grants permission for a
+    confirming tool. It is deliberately NOT optional-with-a-default-of-yes:
+    if a confirming tool is reached with no callback, the call is refused.
+    A headless caller (tests, `python -m app ask`) therefore gets read-only
+    tools unless it opts in explicitly, which is the safe direction to fail.
+    """
     t = TOOLS.get(name)
     if t is None:
         return f"unknown tool {name!r}"
     if t.network and not allow_network:
         return "refused: private mode - network tools are disabled"
+
+    if t.confirm:
+        if on_confirm is None:
+            return (f"refused: {name} changes state outside PERCH and needs "
+                    "confirmation, but nothing is available to ask")
+        try:
+            approved = bool(on_confirm(name, dict(args)))
+        except Exception as exc:                          # noqa: BLE001
+            # A broken or closed UI must read as "no", never as "yes".
+            return f"refused: could not ask for confirmation ({exc})"
+        if not approved:
+            return f"refused: the user declined {name}"
+
     try:
         return t.fn(**args)
     except TypeError as exc:

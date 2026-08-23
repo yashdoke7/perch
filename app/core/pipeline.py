@@ -87,7 +87,8 @@ class Pipeline:
         self.store = store or MemoryStore()
         toolreg.bind_memory(self.store)
 
-    def run(self, req: Request, on_stage=None, on_token=None) -> Response:
+    def run(self, req: Request, on_stage=None, on_token=None,
+            on_confirm=None) -> Response:
         """Execute the request.
 
         on_stage(name, detail) fires as each stage completes, so a UI can
@@ -95,6 +96,10 @@ class Pipeline:
         it reports are exactly the ones in the architecture diagram, which
         is the point: the contribution is watchable, not just claimed.
         on_token(text) fires per streamed token of the final answer.
+        on_confirm(tool_name, args) -> bool is asked before any tool that
+        changes state outside PERCH runs. Leaving it None is not "allow" --
+        those tools are refused, so a headless caller cannot write files or
+        memory by accident. See tools/registry.py:dispatch().
         """
         started = time.time()
         trace = Trace()
@@ -191,6 +196,7 @@ class Pipeline:
             model, packed.system, packed.prompt, allow_network, tool_log,
             on_token=on_token,
             on_tool=lambda name: stage("tool", name),
+            on_confirm=on_confirm,
         )
         trace.tools = tool_log
 
