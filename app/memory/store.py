@@ -23,6 +23,9 @@ from .schema import MemoryItem
 
 DUPLICATE_AT = 0.92
 
+# Set once, so the warning below is loud but not a per-query spam.
+_warned_stale = False
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
     id        TEXT PRIMARY KEY,
@@ -156,6 +159,52 @@ class MemoryStore:
             rows = self.db.execute("SELECT class, COUNT(*) FROM items GROUP BY class").fetchall()
         return {c: n for c, n in rows}
 
+    def index_health(self, live_dim: int | None = None) -> dict:
+        """Which stored vectors the LIVE embedding backend can still compare against.
+
+        The index stores whatever the backend produced at write time --
+        nomic-embed-text gives 768 dimensions, the hashed fallback gives 512.
+        embed.cosine() returns 0.0 when the lengths differ, so a row written
+        by a different backend does not merely score badly, it scores exactly
+        zero and can never be retrieved. That looks identical, from the
+        outside, to "nothing was relevant" -- and the admission gate then
+        correctly abstains on memory that is sitting right there.
+
+        Measured on the development store: 9 of 18 items were written by
+        Ollama and 9 by the fallback, so half the memory was invisible with
+        no indication anywhere that it existed. Hence this method, and the
+        loud warning in candidates().
+        """
+        live = live_dim if live_dim is not None else len(embed.embed("x"))
+        with self._lock:
+            rows = self.db.execute("SELECT vector FROM items").fetchall()
+        dims: dict[int, int] = {}
+        for (vec_json,) in rows:
+            d = len(json.loads(vec_json))
+            dims[d] = dims.get(d, 0) + 1
+        return {
+            "live_dim": live,
+            "backend": embed.backend(),
+            "dims": dims,
+            "total": len(rows),
+            "stale": sum(n for d, n in dims.items() if d != live),
+        }
+
+    def _warn_stale(self, n: int, total: int) -> None:
+        """Loud, once. A stale index is a config error, not a retrieval result."""
+        global _warned_stale
+        if _warned_stale or not n:
+            return
+        _warned_stale = True
+        print(f"  !! STALE INDEX -- {n} of {total} memory items were embedded by a "
+              f"different backend")
+        print(f"     than the one running now ({embed.backend()}). Vectors of "
+              "different lengths cannot be")
+        print("     compared, so those items score 0.0 and are UNRETRIEVABLE -- "
+              "which is indistinguishable")
+        print("     from having no relevant memory at all. Fix it with:  "
+              "python -m app rebuild")
+
     def candidates(self, eligible: list[str], vector: list[float], per_class: int):
         """Over-fetch per eligible class.
 
@@ -164,6 +213,8 @@ class MemoryStore:
         multi-class routing the SOP case depends on.
         """
         out: list[tuple[MemoryItem, float]] = []
+        stale = 0
+        seen = 0
         for cls_name in eligible:
             with self._lock:
                 rows = self.db.execute(
@@ -171,9 +222,16 @@ class MemoryStore:
                 ).fetchall()
             scored = []
             for item_id, vec_json, path in rows:
+                stored = json.loads(vec_json)
+                seen += 1
+                if len(stored) != len(vector):
+                    # Not scored as 0.0 and quietly ranked last -- counted, so
+                    # the user is told the item exists but cannot be reached.
+                    stale += 1
+                    continue
                 # Calibrated relevance, not raw cosine -- see embed.relevance.
                 # This is the score the ranker and admission gate see.
-                sim = embed.relevance(embed.cosine(vector, json.loads(vec_json)))
+                sim = embed.relevance(embed.cosine(vector, stored))
                 scored.append((sim, item_id, path))
             scored.sort(reverse=True)
             for sim, item_id, path in scored[:per_class]:
@@ -183,16 +241,30 @@ class MemoryStore:
                 item = MemoryItem.from_markdown(p.read_text(encoding="utf-8"))
                 if item:
                     out.append((item, sim))
+        self._warn_stale(stale, seen)
         return out
 
     def _nearest_in_class(self, cls_name: str, vector: list[float]) -> tuple[str, float] | None:
-        """Caller holds the lock."""
+        """Caller holds the lock.
+
+        Rows written by a different backend are SKIPPED rather than scored at
+        0.0. Scoring them zero is how the development store ended up with the
+        same identity item stored twice: `seed` was run once under Ollama and
+        once under the fallback, the cross-dimension cosine came back 0.0, the
+        0.92 merge threshold was never reached, and a near-identical duplicate
+        was created that then competed with its own twin at retrieval time.
+        Skipping makes the miss explicit -- the caller still creates a new
+        item, but candidates() is now the thing that says why.
+        """
         rows = self.db.execute(
             "SELECT id, vector FROM items WHERE class=?", (cls_name,)
         ).fetchall()
         best: tuple[str, float] | None = None
         for item_id, vec_json in rows:
-            sim = embed.cosine(vector, json.loads(vec_json))
+            stored = json.loads(vec_json)
+            if len(stored) != len(vector):
+                continue
+            sim = embed.cosine(vector, stored)
             if best is None or sim > best[1]:
                 best = (item_id, sim)
         return best

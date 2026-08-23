@@ -65,6 +65,17 @@ def run_agent() -> None:
         print("     cannot relate 'rewrite this formally' to a note about your")
         print("     writing style. Start Ollama and `ollama pull nomic-embed-text`,")
         print("     then run `python -m app rebuild`.")
+    # A stale index is the worse of the two failures, because it is completely
+    # invisible: the affected items do not rank badly, they cannot be compared
+    # at all. Reported at startup so it is fixed before it is mistaken for the
+    # gate being too strict.
+    health = pipeline.store.index_health()
+    if health["stale"]:
+        print(f"  !! STALE INDEX -- {health['stale']} of {health['total']} items were "
+              "embedded by another backend")
+        print(f"     (dimensions found: {health['dims']}, live: {health['live_dim']}). "
+              "They are UNRETRIEVABLE")
+        print("     until you run:  python -m app rebuild")
     print()
 
     any_failed = False
