@@ -85,6 +85,17 @@ Ask it a medical question and watch what each configuration does:
   C ours                 0            3 / 3
 ```
 
+> **This table needs a real embedder, and the command refuses to print one without it.** On the
+> hashed fallback the ablation *inverts*: config C abstains on every query and scores 0/3, because a
+> bag of words cannot relate *"rewrite this formally"* to a note about your writing style. That is a
+> property of the embedder, not of the gate (architecture §11.6), so rather than print a number that
+> means nothing, `python -m app ablate` prints the per-query traces — routing and the gate's
+> reasoning, which do not depend on embedding quality — and tells you what to start. To score it:
+>
+> ```bash
+> ollama serve && ollama pull nomic-embed-text && python -m app rebuild && python -m app ablate
+> ```
+
 **A** is what most memory systems do — global top-k, no gate. It answers a question about your
 medication with your college details. **B** adds one global threshold; it stops the leak but throws
 identity away, so *"rewrite this more formally"* no longer sounds like you. **C** uses permissive class
@@ -112,7 +123,7 @@ app/
   tools/      web · files · docs · python · memory                the agent surface
   ingest/     exports · prompts                                   ChatGPT / Claude / Gemini
   ui/         panel                                               the product surface
-tests/        25 tests, no model or network required
+tests/        36 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 
