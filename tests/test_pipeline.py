@@ -280,11 +280,20 @@ def test_synthetic_chords_wait_for_the_summoning_modifiers():
     """
     from app.os_layer import winapi
 
-    assert winapi.modifiers_held() == [], "test env should have no keys held"
-    assert winapi.wait_for_modifier_release() is True
-    # The guard must be wired into the chord helper, not just available.
+    # The invariant worth testing is that the guard is WIRED IN -- that is a
+    # property of the code and is true on every machine, every run.
     import inspect
     assert "wait_for_modifier_release" in inspect.getsource(winapi._chord)
+
+    # The rest reads real physical key state through GetAsyncKeyState, so it
+    # is a fact about the machine at this instant, not about PERCH. Asserting
+    # on it made this test fail roughly one run in three -- anyone holding
+    # Shift while the suite ran turned the suite red for no reason, which
+    # trains people to re-run until green and is worse than no test at all.
+    # Skip instead: an intermittently-red test is a test that lies.
+    if winapi.modifiers_held():
+        pytest.skip("a modifier is physically held right now; nothing to assert about")
+    assert winapi.wait_for_modifier_release() is True
 
 
 def test_hotkey_combo_parsing_round_trips():
@@ -301,3 +310,120 @@ def test_private_mode_does_not_even_declare_network_tools():
     assert "web_search" not in offered
     assert "web_fetch" not in offered
     assert "memory_search" in offered
+
+
+# ------------------------------------------------------- ★ write confirmation
+#
+# "Read is free, write asks" is architecture Part VI rule 1, and it was
+# documented for some time while dispatch() ignored the confirm flag entirely.
+# These tests exist so that cannot silently regress: the policy is only real
+# if something fails when it is broken.
+
+def test_a_confirming_tool_is_refused_when_nothing_can_ask(tmp_path):
+    from app.tools import registry as toolreg
+    target = tmp_path / "should-not-exist.txt"
+    out = toolreg.dispatch("file_write", {"path": str(target), "content": "x"})
+    assert out.startswith("refused")
+    assert not target.exists(), "no callback must mean no write, not a silent write"
+
+
+def test_declining_stops_the_write(tmp_path):
+    from app.tools import registry as toolreg
+    target = tmp_path / "declined.txt"
+    out = toolreg.dispatch("file_write", {"path": str(target), "content": "x"},
+                           on_confirm=lambda name, args: False)
+    assert "declined" in out
+    assert not target.exists()
+
+
+def test_approving_lets_the_write_through(tmp_path):
+    from app.tools import registry as toolreg
+    target = Path(_TMP) / "approved.txt"          # inside PERCH_HOME, so _allowed
+    seen: list[tuple[str, dict]] = []
+
+    def approve(name: str, args: dict) -> bool:
+        seen.append((name, args))
+        return True
+
+    toolreg.dispatch("file_write", {"path": str(target), "content": "hello"},
+                     on_confirm=approve)
+    assert target.read_text(encoding="utf-8") == "hello"
+    assert seen[0][0] == "file_write", "the callback must see WHICH tool it is approving"
+
+
+def test_a_broken_confirmation_callback_is_a_no(tmp_path):
+    """A UI that raises must not read as approval."""
+    from app.tools import registry as toolreg
+    target = tmp_path / "broken.txt"
+
+    def explode(name: str, args: dict) -> bool:
+        raise RuntimeError("the panel was closed")
+
+    out = toolreg.dispatch("file_write", {"path": str(target), "content": "x"},
+                           on_confirm=explode)
+    assert out.startswith("refused")
+    assert not target.exists()
+
+
+def test_reads_never_ask(store):
+    """The other half of the rule: a read tool must not be gated."""
+    from app.tools import registry as toolreg
+    toolreg.bind_memory(store)
+    asked = []
+    out = toolreg.dispatch("memory_search", {"query": "who am I"},
+                           on_confirm=lambda n, a: asked.append(n) or True)
+    assert not asked, "memory_search is a read; gating it would train the user to click yes"
+    assert not out.startswith("refused")
+
+
+def test_memory_write_cannot_store_silently():
+    """§3.4 rule 1: nothing is stored silently from ordinary chat."""
+    from app.tools import registry as toolreg
+    out = toolreg.dispatch("memory_write", {
+        "cls": "identity", "title": "snuck in", "body": "should never be stored",
+    })
+    assert out.startswith("refused")
+
+
+def test_running_code_asks_first():
+    """run_python is not a sandbox, so the confirmation IS the containment."""
+    from app.tools import registry as toolreg
+    assert toolreg.TOOLS["run_python"].confirm, "run_python must never be free to call"
+    out = toolreg.dispatch("run_python", {"code": "print(1)"})
+    assert out.startswith("refused")
+
+
+def test_the_prompt_says_what_will_actually_happen():
+    from app.tools import registry as toolreg
+    line = toolreg.describe_call("file_write", {"path": "C:/x.txt", "content": "y"})
+    assert "file_write" in line and "C:/x.txt" in line
+
+
+# ------------------------------------------------------ ★ stale index detection
+#
+# The failure these guard against was found in the live development store: 9 of
+# 18 items had been embedded by Ollama (768-d) and 9 by the fallback (512-d).
+# embed.cosine returns 0.0 on a length mismatch, so half the memory scored zero
+# and was unretrievable -- which looks exactly like "nothing was relevant", and
+# is therefore invisible. It also broke near-duplicate merging, leaving the same
+# identity item stored twice.
+
+def test_a_mismatched_vector_is_not_scored_as_merely_irrelevant(store):
+    """A vector of the wrong length must be reported, not silently ranked last."""
+    health = store.index_health(live_dim=999)
+    assert health["stale"] == health["total"], (
+        "every stored vector differs from a 999-d live backend, so all of them "
+        "must be counted stale"
+    )
+
+
+def test_a_consistent_index_reports_no_staleness(store):
+    health = store.index_health()
+    assert health["stale"] == 0
+    assert health["dims"] == {health["live_dim"]: health["total"]}
+
+
+def test_cross_dimension_vectors_never_merge_by_accident():
+    """cosine() is 0.0 across dimensions, which must not read as 'not a duplicate'
+    on one path and 'perfectly unrelated' on another."""
+    assert embed.cosine([1.0, 0.0], [1.0, 0.0, 0.0]) == 0.0

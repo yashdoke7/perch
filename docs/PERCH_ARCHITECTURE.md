@@ -28,7 +28,7 @@
 | **VIII** | ★ The complete pipeline, wired end to end |
 | **IX** | Build — stack, phases, team |
 | **X** | Evaluation |
-| **XI** | ★ Self-critique — the five weakest points, stated before the panel finds them |
+| **XI** | ★ Self-critique — the weakest points, stated before anyone else finds them |
 | **XII** | Risks |
 
 ---
@@ -616,17 +616,33 @@ supports tool calling, and every schema is charged against the same budget as me
 | **Documents** | `doc_parse` (PDF / DOCX / XLSX / PPTX → text) · `ocr_image` |
 | **Screen & OS** | `capture_region` · `read_selection` · `active_window` · `clipboard_read` · `clipboard_write` · `paste_into` |
 | **Applications** | `open_path` · `open_url` · `focus_window` |
-| **Compute** | `run_python` — sandboxed, no network, for arithmetic, dates, data munging |
+| **Compute** | `run_python` — a separate interpreter in isolated mode (`-I`), 10s timeout, for arithmetic, dates, data munging. ⚠️ **Not a sandbox** — see below |
 | **Vision** | `describe_image` — when a vision-capable model is selected |
 | **Deferred to v2, named as such** | calendar read, email read, shell execution, app automation |
 
 **Tool safety policy — three rules:**
 
 1. **Read is free; write asks.** Anything that changes state outside PERCH (`file_write`, `paste_into`,
-   `open_url`) shows what it will do and waits.
+   `open_url`) or runs arbitrary code (`run_python`) shows what it will do and waits.
+   **Enforced in one place** — `tools/registry.py:dispatch()` — and **deny-by-default**: a caller that
+   supplies no approval callback cannot invoke a confirming tool at all. So the headless paths
+   (`python -m app ask`, the tests) get read-only tools unless they opt in, and the panel is what
+   supplies the prompt.
 2. **Every tool call is logged**, visible in the panel, and attributable to a request.
 3. **Private mode restricts the tool set.** `web_search` and `web_fetch` are disabled — a tool call is
    an exfiltration path, and a private-mode guarantee that leaks through a search query is worthless.
+
+> ⚠️ **`run_python` is not sandboxed, and an earlier version of this document said it was.** `-I`
+> (isolated mode) only stops the *environment* from hijacking the snippet — it ignores `PYTHONPATH`,
+> `PYTHON*` variables and the user site directory. The snippet still runs with PERCH's own privileges:
+> it can read and write any file the user can, open sockets, and start other programs. The 10-second
+> timeout bounds how long it runs, not what it may do.
+>
+> **So the confirmation is the containment**, which is why `run_python` is `confirm=True` and a human
+> reads the code before it executes. A real sandbox — dropped privileges, no network namespace, a
+> read-only filesystem view — is the correct fix and is **open work, not something to claim with a flag.**
+> Note also that `run_python` is a non-network tool, so it stays *declared* in private mode; a snippet
+> that opened a socket would defeat the private-mode guarantee, and only the human read prevents that.
 
 ---
 
@@ -747,7 +763,7 @@ item is forced local automatically** — with the panel saying why.
 | Phase | Deliverable | Status |
 |---|---|---|
 | **0** | OS-layer proof — three triggers, positioning, paste-back | **done** |
-| **1** | **Working prototype**: OS layer + panel + model routing + typed memory + ranker/admission/packer + tool loop + streaming + live stage tracker | **done — 25 tests** |
+| **1** | **Working prototype**: OS layer + panel + model routing + typed memory + ranker/admission/packer + tool loop + streaming + live stage tracker | **done — 36 tests** |
 | **1a** | Panel chrome: drag, resize, persisted geometry, provenance chips | **done** |
 | 2 | Import: export parsers, class extraction, review screen | |
 | 3 | Budget packer + registry, local and cloud, private mode | |
@@ -783,8 +799,9 @@ item is forced local automatically** — with the panel saying why.
 
 # PART XI — ★ SELF-CRITIQUE
 
-**You asked me to be a critic so this is the final version. The five weakest points, and what we do
-about each.**
+**You asked me to be a critic so this is the final version. The weakest points, and what we do
+about each.** Items 6 and 7 were found by breaking the system ourselves, after the first five were
+written — which is the reason this section is kept open rather than closed at five.
 
 ### 1. "Microsoft is shipping the Windows Semantic Index. You are redundant."
 **The strongest objection, and it is legitimate.** Response: it is unshipped (26H2), targets
@@ -837,6 +854,35 @@ the system fell back without saying so.
 > **Where this goes next:** floors should be *fitted* on held-out labelled data per class, not chosen.
 > That turns E4 from an ablation into a calibration result, and it is the most defensible answer to
 > "did you just pick these numbers?" — because the honest current answer is *yes, guided by measurement*.
+
+### 7. ⚠️ "Switching embedding backends silently deleted half the memory."
+
+**Found by inspecting the live development store, not by a test — which is the point.**
+
+The index stores whatever vector the backend produced *at write time*: `nomic-embed-text` gives 768
+dimensions, the hashed fallback gives 512. `embed.cosine()` returns `0.0` when the lengths differ.
+So a store written under Ollama and then queried without it does not degrade — **every affected item
+scores exactly zero and becomes unreachable.** Measured on the development machine: **9 of 18 items
+were invisible**, and nothing anywhere said so.
+
+**Why it is worse than it sounds.** The symptom is *the gate abstaining*. That is indistinguishable
+from the gate working correctly on genuinely irrelevant memory — so the failure disguises itself as
+the contribution behaving as designed. It also broke near-duplicate merging (§3.4 rule 3): a
+cross-dimension cosine of 0.0 never reaches the 0.92 merge threshold, so re-seeding created a second
+copy of the same identity item, which then competed with its own twin at retrieval time.
+
+**What now happens instead:** `MemoryStore.index_health()` compares stored dimensions against the live
+backend; mismatched rows are **skipped and counted** rather than scored zero; and both the agent's
+startup banner and the first query print a loud `!! STALE INDEX` warning naming the remedy
+(`python -m app rebuild`). Three tests cover it.
+
+**The limit, stated honestly:** this *detects* the problem, it does not prevent it. The index should
+record the backend and dimension it was built with and rebuild itself on a mismatch, rather than
+asking the user to. That is open work.
+
+> **The general lesson, and it applies to every threshold in Part IV:** a defensive guard that returns
+> a neutral-looking value on a malformed input converts a configuration error into a silent wrong
+> answer. `return 0.0` looked safe and was the whole bug.
 
 ---
 
