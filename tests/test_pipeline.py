@@ -427,3 +427,205 @@ def test_cross_dimension_vectors_never_merge_by_accident():
     """cosine() is 0.0 across dimensions, which must not read as 'not a duplicate'
     on one path and 'perfectly unrelated' on another."""
     assert embed.cosine([1.0, 0.0], [1.0, 0.0, 0.0]) == 0.0
+
+
+# ----------------------------------------------------------- ★ Phase 2: import
+#
+# §3.4's three write-side rules are what keep memory growth bounded, so each
+# gets a test: nothing stored silently, extraction gated by review, and
+# near-duplicates merging rather than accumulating.
+
+FAKE_REPLY = """Here is what I found:
+
+- title: PERCH is a Windows desktop AI agent
+  tags: [perch, python, windows]
+  entities: [PERCH]
+  confidence: 0.9
+  class: project
+  body: |
+    A personal AI agent triggered by a global hotkey, answering in a panel
+    beside the user's work.
+- title: Item whose body contains a dash line
+  tags:
+    - edge
+    - case
+  confidence: 0.35
+  body: |
+    The body has a bullet:
+    - this line must not split the item
+    and text after it.
+- title: Malformed item with no body at all
+  tags: [bad]
+  confidence: 0.5
+"""
+
+
+@pytest.fixture
+def fake_model():
+    from app.models.registry import Model
+    return Model(key="fake", provider="ollama", model_id="fake:1b",
+                 context_window=8192, local=True, tools=True)
+
+
+def _session(turns=None):
+    from app.ingest.exports import Session
+    return Session(platform="chatgpt", title="Project planning", created="",
+                   turns=turns or [("user", "I am building PERCH."),
+                                   ("assistant", "Tell me about retrieval.")])
+
+
+def test_the_contract_parser_survives_realistic_model_output():
+    """Preamble, block-style lists and in-body dashes are all normal output."""
+    from app.ingest import extract
+    props = extract.parse_contract(FAKE_REPLY, "project", platform="chatgpt")
+    assert len(props) == 2, "the bodyless item must be dropped, the rest kept"
+    assert props[0].item.tags == ["perch", "python", "windows"]
+    assert props[1].item.tags == ["edge", "case"], "block-style lists must parse"
+    assert "must not split the item" in props[1].item.body
+
+
+def test_a_code_fence_does_not_defeat_the_parser():
+    from app.ingest import extract
+    fenced = "```yaml\n" + FAKE_REPLY.split("found:\n", 1)[1] + "\n```"
+    assert len(extract.parse_contract(fenced, "project")) == 2
+
+
+def test_one_bad_field_does_not_lose_the_batch():
+    """The reason this is not PyYAML: a strict parse loses everything."""
+    from app.ingest import extract
+    broken = FAKE_REPLY.replace("  confidence: 0.9", "  confidence: not-a-number")
+    props = extract.parse_contract(broken, "project")
+    assert len(props) == 2
+    assert props[0].confidence == 1.0, "an unparseable confidence falls back, not fatal"
+
+
+def test_the_class_is_pinned_by_us_not_read_from_the_model():
+    """The class IS the privacy boundary, so a model cannot choose it."""
+    from app.ingest import extract
+    reply = FAKE_REPLY.replace("class: project", "class: health")
+    props = extract.parse_contract(reply, "project")
+    assert all(p.item.cls == "project" for p in props)
+    assert any("health" in w for w in props[0].warnings), "surface the disagreement"
+
+
+def test_low_confidence_is_flagged_for_the_reviewer():
+    from app.ingest import extract
+    props = extract.parse_contract(FAKE_REPLY, "project")
+    assert any("unsure" in w for w in props[1].warnings)
+
+
+def test_extraction_refuses_rather_than_returning_nothing():
+    """The stub cannot read a transcript, and pretending otherwise would be
+    the same silent degradation the ablation and the index warning fixed."""
+    from app.ingest import extract
+    from app.models.registry import STUB
+    with pytest.raises(extract.ExtractionUnavailable):
+        extract.extract([_session()], "project", STUB)
+
+
+def test_an_unreachable_model_is_not_an_empty_result(fake_model, monkeypatch):
+    from app.ingest import extract
+    from app.models import client as modelclient
+    monkeypatch.setattr(modelclient, "complete",
+                        lambda *a, **k: "(local model unreachable: refused)")
+    with pytest.raises(extract.ExtractionUnavailable):
+        extract.extract([_session()], "project", fake_model)
+
+
+def test_long_sessions_split_at_turn_boundaries():
+    """Cutting mid-turn yields items extracted from half a sentence."""
+    from app.ingest import extract
+    turns = [("user", "x" * 400), ("assistant", "y" * 400), ("user", "z" * 400)]
+    chunks = extract._chunks(_session(turns), budget=900)
+    assert len(chunks) > 1, "this must actually have split, or it proves nothing"
+    for chunk in chunks:
+        for line in chunk.splitlines():
+            if line.strip():
+                assert line.startswith(("USER:", "ASSISTANT:")), \
+                    f"chunk boundary landed inside a turn: {line[:40]!r}"
+
+
+def test_review_stores_nothing_without_an_explicit_yes(tmp_path, fake_model, monkeypatch):
+    """§3.4 rule 1, and the reason a bare Enter means no."""
+    from app.ingest import extract, review
+    from app.models import client as modelclient
+    monkeypatch.setattr(modelclient, "complete", lambda *a, **k: FAKE_REPLY)
+
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    props = extract.extract([_session()], "project", fake_model)
+    summary = review.review(props, s, ask=lambda _p: "", out=lambda *a: None)
+    assert summary.accepted == 0
+    assert s.count() == 0, "pressing Enter through a review must store nothing"
+
+
+def test_review_stores_only_what_was_accepted(tmp_path, fake_model, monkeypatch):
+    from app.ingest import extract, review
+    from app.models import client as modelclient
+    monkeypatch.setattr(modelclient, "complete", lambda *a, **k: FAKE_REPLY)
+
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    props = extract.extract([_session()], "project", fake_model)
+    answers = iter(["y", "n"])
+    summary = review.review(props, s, ask=lambda _p: next(answers), out=lambda *a: None)
+    assert (summary.accepted, summary.rejected) == (1, 1)
+    assert s.count() == 1
+    titles = [r[0] for r in s.db.execute("SELECT title FROM items").fetchall()]
+    assert titles == ["PERCH is a Windows desktop AI agent"]
+
+
+def test_quitting_review_leaves_the_rest_unstored(tmp_path, fake_model, monkeypatch):
+    from app.ingest import extract, review
+    from app.models import client as modelclient
+    monkeypatch.setattr(modelclient, "complete", lambda *a, **k: FAKE_REPLY)
+
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    props = extract.extract([_session()], "project", fake_model)
+    summary = review.review(props, s, ask=lambda _p: "q", out=lambda *a: None)
+    assert summary.quit_early and s.count() == 0
+
+
+def test_editing_a_title_applies_before_it_is_stored(tmp_path, fake_model, monkeypatch):
+    from app.ingest import extract, review
+    from app.models import client as modelclient
+    monkeypatch.setattr(modelclient, "complete", lambda *a, **k: FAKE_REPLY)
+
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    props = extract.extract([_session()], "project", fake_model)
+    answers = iter(["e", "A better title", "d"])
+    review.review(props, s, ask=lambda _p: next(answers), out=lambda *a: None)
+    titles = [r[0] for r in s.db.execute("SELECT title FROM items").fetchall()]
+    assert titles == ["A better title"]
+
+
+def test_a_reimported_fact_merges_instead_of_duplicating(tmp_path, fake_model, monkeypatch):
+    """§3.4 rule 3 across two import runs -- the scale rule that stops a
+    restated fact competing with itself at retrieval time."""
+    from app.ingest import extract, review
+    from app.models import client as modelclient
+    monkeypatch.setattr(modelclient, "complete", lambda *a, **k: FAKE_REPLY)
+
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    summary = None
+    for _ in range(2):
+        props = extract.extract([_session()], "project", fake_model)
+        summary = review.review(props, s, ask=lambda _p: "a", out=lambda *a: None)
+    assert summary.merged, "the second run must merge, not create"
+    assert s.count() == 2, "two distinct facts, imported twice, stay two items"
+
+
+def test_imported_items_carry_their_provenance():
+    from app.ingest import extract
+    props = extract.parse_contract(FAKE_REPLY, "project", platform="claude",
+                                   session_title="Some old chat")
+    assert props[0].item.source_kind == "import"
+    assert props[0].item.source_platform == "claude"
+    assert props[0].item.source_ref == "Some old chat"
+
+
+def test_both_prompt_paths_share_one_contract():
+    """Two prompt shapes are fine; two output formats would need two parsers."""
+    from app.ingest import prompts
+    pasted, driven = prompts.build("project"), prompts.build_system("project")
+    assert prompts.CONTRACT in pasted and prompts.CONTRACT in driven
+    assert "read everything above" in pasted
+    assert "read everything above" not in driven

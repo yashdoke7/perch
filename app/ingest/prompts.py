@@ -58,6 +58,37 @@ Set class to "{cls.name}" for every element.
 Now read everything above in this conversation and produce the YAML list."""
 
 
+def build_system(cls_name: str) -> str:
+    """The same contract and schema, addressed to a model we call ourselves.
+
+    build() above ends with "read everything above in this conversation",
+    because it is written to be PASTED INTO an existing chat that already
+    holds the history. When PERCH drives the extraction it supplies the
+    transcript itself, so that trailer would point at nothing. Everything
+    else -- the contract, the per-class schema, the class pin -- is
+    deliberately identical: the two paths must produce the same shape, or
+    the importer needs two parsers and one of them rots.
+    """
+    cls = classes.get(cls_name)
+    if cls is None:
+        raise ValueError(f"unknown class {cls_name!r}; valid: {', '.join(classes.ORDER)}")
+
+    covers = "\n".join(f"  - {line}" for line in cls.schema)
+
+    return f"""You are extracting durable personal memory from a conversation
+transcript for a personal AI assistant called PERCH. The user owns this memory.
+
+CLASS: {cls.name}
+This class holds: {cls.holds}
+
+Cover these, where the transcript actually contains them:
+{covers}
+
+{CONTRACT}
+
+Set class to "{cls.name}" for every element."""
+
+
 def all_prompts() -> dict[str, str]:
     return {name: build(name) for name in classes.ORDER}
 

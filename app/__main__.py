@@ -20,6 +20,7 @@ import tkinter as tk
 from . import config
 from .core.pipeline import Pipeline, Request
 from .memory.store import MemoryStore
+from .models import registry
 from .os_layer import capture, hotkey, screenshot, winapi
 from .ui.panel import Panel
 
@@ -207,20 +208,79 @@ def cmd_prompts() -> None:
 
 
 def cmd_import(argv: list[str]) -> None:
-    from .ingest import exports
-    if not argv:
-        print("usage: python -m app import <export.zip|conversations.json>")
+    """Phase 2, end to end: parse -> extract (one class) -> review -> store.
+
+        python -m app import <export.zip> [class] [--dry-run]
+
+    The class is an argument rather than something we infer, and that is the
+    whole point: §3.5 has the user type the memory at the SOURCE, which is
+    what makes the admission gate's per-class floors mean anything later.
+    """
+    from .ingest import exports, extract, review
+    from .memory import classes as mc
+
+    args = [a for a in argv if not a.startswith("--")]
+    dry_run = "--dry-run" in argv
+
+    if not args:
+        print("usage: python -m app import <export.zip|conversations.json> "
+              f"[{('|'.join(mc.ORDER))}] [--dry-run]")
         return
+
+    config.ensure_dirs()
     try:
-        sessions = exports.load(argv[0])
+        sessions = exports.load(args[0])
     except exports.ExportError as exc:
         print(f"import failed: {exc}")
         return
+
     print(exports.summarise(sessions))
     for s in sessions[:10]:
         print(f"  [{s.platform}] {s.title[:60]}  ({len(s.turns)} turns, {s.chars:,} chars)")
-    print("\nNothing was stored. Extraction and review are Phase 2 —")
-    print("run `python -m app prompts` for the six extraction prompts you can use now.")
+    if len(sessions) > 10:
+        print(f"  ... and {len(sessions) - 10} more")
+
+    # --- which class -----------------------------------------------------
+    cls_name = args[1].lower() if len(args) > 1 else ""
+    if cls_name not in mc.CLASSES:
+        if cls_name:
+            print(f"\nunknown class {cls_name!r}")
+        print(f"\nWhich class is this import? One run extracts ONE class.")
+        for name in mc.ORDER:
+            print(f"  {name:<10} {mc.CLASSES[name].holds}")
+        try:
+            cls_name = input("\nclass: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\ncancelled")
+            return
+        if cls_name not in mc.CLASSES:
+            print(f"unknown class {cls_name!r} — nothing was imported")
+            return
+
+    # --- extract ---------------------------------------------------------
+    model = registry.select(private=False)
+    print(f"\nextracting {cls_name} with {model.label()}")
+
+    def progress(n: int, total: int, title: str) -> None:
+        print(f"  [{n}/{total}] {title[:60]}")
+
+    try:
+        proposals = extract.extract(sessions, cls_name, model, on_progress=progress)
+    except extract.ExtractionUnavailable as exc:
+        print(f"\nextraction unavailable: {exc}")
+        return
+
+    print(f"\n{len(proposals)} proposals from {len(sessions)} sessions")
+    if dry_run:
+        print("--dry-run: showing proposals, storing nothing\n")
+        for i, p in enumerate(proposals, 1):
+            print(review.render(p, i, len(proposals)))
+            print()
+        return
+
+    summary = review.review(proposals, MemoryStore())
+    print()
+    print("\n".join(summary.lines()))
 
 
 def cmd_hotkeys() -> None:
