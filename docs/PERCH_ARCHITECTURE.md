@@ -394,6 +394,33 @@ body must cover:
 **The user picks the class before importing**, which is what makes the item typed rather than guessed —
 and typing at the source is what makes admission auditable in §4.4.
 
+### ★ How it is actually built (`app/ingest/`)
+
+```
+   exports.py   archive  ->  Session objects          per-platform, fails loudly
+   extract.py   Session  ->  Proposal objects         one class per run, model-driven
+   review.py    Proposal ->  MemoryStore              only what a human accepted
+```
+
+**Four decisions worth stating, because each one is a place this could have gone wrong:**
+
+| Decision | Why |
+|---|---|
+| **The class is pinned by us, not read from the model's reply** | The prompt tells it to emit `class:`, but the importer *overrides* that with the class the user chose, and surfaces any disagreement as a review warning. The class is the privacy boundary (§7.3) — a bad extraction filing a health fact under Academic would route it to a cloud model. **The model may not choose the privacy label.** |
+| **The contract is parsed by hand, not with PyYAML** | Models produce almost-YAML: a stray fence, a "Here are the items:" preamble, an indent that slips. PyYAML answers every one of those with a single exception that loses the **entire batch**, including the nine items it parsed perfectly. A tolerant parser for our own fixed contract fails **per item** and keeps the rest — the isolated, loud failure §11.5 asks for. It also keeps the dependency list honest; `schema.py` hand-rolls frontmatter for the same reason. |
+| **Long sessions split at turn boundaries** | Cutting mid-turn extracts items from half a sentence, which then read as confident, incomplete facts — the same failure the packer's whole-items-only rule exists to prevent. |
+| **An unreachable model raises, it does not return `[]`** | "Your history contained nothing worth keeping" and "nothing was running" are opposite messages, and the second must never be delivered as the first. Extraction is the one component that genuinely cannot be stubbed. |
+
+**The review surface is a terminal triage loop**, one item at a time, shown in full: `y` accepts, Enter
+rejects, `e` retitles, `a`/`d` bulk-apply to the rest, `q` ends. Two properties are deliberate — **the
+default is no**, because a `y`-default over hundreds of items produces a memory full of things nobody
+read; and **the write happens in one pass after review ends**, so an interrupted session cannot leave
+memory in a state the user never saw summarised.
+
+> **A tkinter review screen is a wrapper over this same accept/reject core, not a rewrite of it.** The
+> triage logic takes its I/O as arguments precisely so it is testable headlessly and reusable behind a
+> GUI later.
+
 ---
 
 # PART IV — ★ RETRIEVAL: ROUTER, RANKER, ADMISSION SCORER, PACKER
@@ -763,9 +790,9 @@ item is forced local automatically** — with the panel saying why.
 | Phase | Deliverable | Status |
 |---|---|---|
 | **0** | OS-layer proof — three triggers, positioning, paste-back | **done** |
-| **1** | **Working prototype**: OS layer + panel + model routing + typed memory + ranker/admission/packer + tool loop + streaming + live stage tracker | **done — 36 tests** |
+| **1** | **Working prototype**: OS layer + panel + model routing + typed memory + ranker/admission/packer + tool loop + streaming + live stage tracker | **done — 34 tests** |
 | **1a** | Panel chrome: drag, resize, persisted geometry, provenance chips | **done** |
-| 2 | Import: export parsers, class extraction, review screen | |
+| **2** | **Import**: export parsers, class-typed extraction, CLI review triage | **done — 15 tests** |
 | 3 | Budget packer + registry, local and cloud, private mode | |
 | 4 | Full view, sessions, screenshots, OCR | |
 | 5 | Evaluation: OP-Bench, LongMemEval, ablation, latency, packet capture | |

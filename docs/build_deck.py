@@ -335,7 +335,7 @@ S("What Already Runs - The Prototype", [
      "up each pipeline stage in turn - route, rank, gate, pack, model - with the gate reporting what "
      "it admitted and dropped. It turns GREEN when it admits and RED when it abstains, because a "
      "deliberate refusal is the contribution working, not a failure."),
-    ("Verification:", " 36 tests pass with no model, no GPU and no network. The ablation runs on a "
+    ("Verification:", " 49 tests pass with no model, no GPU and no network. The ablation runs on a "
      "seeded memory set and prints every routing, ranking and admission decision."),
 ], size=9.5)
 

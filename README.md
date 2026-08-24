@@ -64,7 +64,7 @@ python -m app ask "why does the panel freeze when the model is slow?"
 python -m app ablate            # the admission ablation -- start here
 python -m app memory            # what is stored, by class
 python -m app prompts           # write the six extraction prompts
-python -m app import <export>   # parse a ChatGPT / Claude / Gemini export
+python -m app import <export> <class>   # ChatGPT / Claude / Gemini -> reviewed memory
 python -m pytest tests -q
 ```
 
@@ -112,6 +112,32 @@ declarative rather than learned — **every drop prints its own reason**, which 
 
 ---
 
+## Bringing your existing history in
+
+Your subscription's **export button** is the only ToS-legitimate bridge out of a vendor's memory of
+you. PERCH parses those archives locally, extracts typed memory, and asks before storing any of it.
+
+```bash
+python -m app import conversations.json project --dry-run   # see what it would propose
+python -m app import conversations.json project             # propose, review, store
+```
+
+**One class per run, and you name it.** That is not a limitation to route around — the class is
+assigned by *you* at the source, which is exactly what makes the per-class floors above mean something
+later. A model guessing the class would put the type system back into the thing it was meant to replace.
+
+**Nothing is stored until you type `y`.** Each proposal is shown in full — body, tags, source session,
+extractor confidence, and any warnings — then `y` keeps it, Enter rejects it, `e` retitles it, `a`
+accepts all remaining, `q` ends the review. Accepted items are written in one pass at the end, so an
+interrupted review never leaves memory half-updated. Re-importing a fact you already have **merges**
+into the existing item rather than adding a rival copy, and the summary says which happened.
+
+**Extraction is the one part that cannot be stubbed** — reading a transcript and deciding what is worth
+keeping *is* the work. With no model reachable it refuses and says so, rather than reporting that your
+history contained nothing.
+
+---
+
 ## What is here
 
 ```
@@ -121,9 +147,9 @@ app/
   core/       router · ranker · admission · packer · privacy · pipeline
   models/     registry · client                                   local first, always
   tools/      web · files · docs · python · memory                the agent surface
-  ingest/     exports · prompts                                   ChatGPT / Claude / Gemini
+  ingest/     exports · extract · review · prompts               ChatGPT / Claude / Gemini
   ui/         panel                                               the product surface
-tests/        36 tests, no model or network required
+tests/        49 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 
