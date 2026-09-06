@@ -60,9 +60,10 @@ For real answers: `ollama run qwen2.5:3b`, or set `PERCH_API_BASE` and `PERCH_AP
 ### Everything else
 
 ```bash
-python -m app ask "why does the panel freeze when the model is slow?"
+python -m app ask [--route local|cloud|auto] [--private] "why does the panel freeze?"
 python -m app ablate            # the admission ablation -- start here
 python -m app memory            # what is stored, by class
+python -m app models            # which routes this machine can reach
 python -m app prompts           # write the six extraction prompts
 python -m app import <export> <class>   # ChatGPT / Claude / Gemini -> reviewed memory
 python -m pytest tests -q
@@ -149,7 +150,7 @@ app/
   tools/      web · files · docs · python · memory                the agent surface
   ingest/     exports · extract · review · prompts               ChatGPT / Claude / Gemini
   ui/         panel                                               the product surface
-tests/        49 tests, no model or network required
+tests/        63 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 

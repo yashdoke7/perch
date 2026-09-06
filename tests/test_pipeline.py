@@ -629,3 +629,175 @@ def test_both_prompt_paths_share_one_contract():
     assert prompts.CONTRACT in pasted and prompts.CONTRACT in driven
     assert "read everything above" in pasted
     assert "read everything above" not in driven
+
+
+# ------------------------------------------- ★ Phase 3: one budget, two claimants
+#
+# C1's claim is not that memory has a budget -- everything has that -- it is
+# that memory and TOOL RESULTS are charged against ONE allowance. That was
+# documented in client.py's own docstring while the code appended result[:4000]
+# and hoped: four tool steps overflowed an 8192-token local window by ~2300
+# tokens, and the model then truncates from the far end, where the system
+# prompt and memory live. These tests exist so it cannot silently regress.
+
+def _scored(cls_name, title, body, score):
+    from app.memory.schema import Scored
+    return Scored(item=MemoryItem(cls=cls_name, title=title, body=body), score=score)
+
+
+def _packed_with_memory(context_window=4096, n=4):
+    items = [_scored("identity", "How I write",
+                     "Plain English, British spelling, no padding.", 1.0)]
+    items += [_scored("project", f"Decision {i}", "why this was chosen. " * 40,
+                      0.9 - i * 0.1) for i in range(n)]
+    return packer.pack("what changed?", "", items, context_window=context_window)
+
+
+def test_a_tool_result_that_fits_evicts_nothing():
+    from app.models import client
+    p = _packed_with_memory(context_window=16_000)
+    before = len(p.included)
+    client._charge_tool_result(p, "a small result")
+    assert len(p.included) == before
+    assert p.used <= p.budget
+
+
+def test_a_large_tool_result_is_paid_for_with_the_weakest_memory():
+    from app.models import client
+    p = _packed_with_memory()
+    thrown = []
+    client._charge_tool_result(p, "search result. " * 700, on_evict=thrown.append)
+    evicted = [s for batch in thrown for s in batch]
+    assert evicted, "a result far larger than headroom must cost something"
+    assert p.used <= p.budget, f"budget blown: {p.used} > {p.budget}"
+    # Lowest-ranked first: Decision 3 goes before Decision 0.
+    order = [s.item.title for s in evicted]
+    assert order[0] == "Decision 3", order
+
+
+def test_identity_is_never_evicted_for_a_tool_result():
+    """§4.5's fill order calls identity 'small, always'. A search result that
+    costs the user their own voice is a bad trade at any size."""
+    from app.models import client
+    p = _packed_with_memory()
+    thrown = []
+    client._charge_tool_result(p, "search result. " * 900, on_evict=thrown.append)
+    assert all(s.item.cls != "identity" for batch in thrown for s in batch)
+    assert any(s.item.cls == "identity" for s in p.included), "identity must survive"
+    assert "How I write" in p.prompt
+
+
+def test_eviction_actually_leaves_the_prompt():
+    """Freeing tokens in the ledger while still sending the text would make
+    the whole accounting a lie."""
+    from app.models import client
+    p = _packed_with_memory()
+    client._charge_tool_result(p, "search result. " * 700)
+    for scored in p.evicted:
+        assert scored.item.title not in p.prompt, f"{scored.item.title} still in the prompt"
+
+
+def test_the_refreshed_prompt_reaches_the_model():
+    """_refresh_prompt must update the user message the loop already built."""
+    from app.models import client
+    p = _packed_with_memory()
+    messages = [{"role": "system", "content": p.system},
+                {"role": "user", "content": p.prompt}]
+    client._charge_tool_result(p, "search result. " * 700)
+    client._refresh_prompt(messages, p)
+    assert messages[1]["content"] == p.prompt
+    assert "Decision 3" not in messages[1]["content"]
+
+
+def test_when_nothing_can_be_evicted_the_result_is_truncated_not_appended():
+    from app.models import client
+    p = packer.pack("q", "", [], context_window=2048)
+    p.used = p.budget - 400
+    out = client._charge_tool_result(p, "x" * 50_000)
+    assert len(out) < 50_000, "an oversized result must not be appended whole"
+    assert p.used <= p.budget
+
+
+def test_a_truncated_result_says_so():
+    """A model reasoning from a fragment must know it is a fragment."""
+    from app.models import client
+    p = packer.pack("q", "", [], context_window=2048)
+    p.used = p.budget - 400
+    out = client._charge_tool_result(p, "x" * 50_000)
+    assert "truncated" in out or "omitted" in out
+
+
+def test_with_no_room_at_all_the_result_is_refused_rather_than_shredded():
+    from app.models import client
+    p = packer.pack("q", "", [], context_window=2048)
+    p.used = p.budget - 5
+    out = client._charge_tool_result(p, "x" * 50_000)
+    assert "omitted" in out
+    assert "do not invent" in out, "the model must be told not to fill the gap"
+
+
+def test_four_tool_steps_no_longer_overflow_a_local_window():
+    """The exact failure this phase fixes, at the size it actually happened."""
+    from app.models import client
+    p = _packed_with_memory(context_window=8192, n=8)
+    for _ in range(client.MAX_TOOL_STEPS):
+        client._charge_tool_result(p, "result. " * 500)
+    assert p.used <= p.budget, f"still overflowing: {p.used} > {p.budget}"
+
+
+def test_charging_without_a_ledger_still_works():
+    """Callers that do not budget (tools off, direct use) must not crash."""
+    from app.models import client
+    assert client._charge_tool_result(None, "x" * 9000) == "x" * 4000
+
+
+# ----------------------------------------------------- ★ Phase 3: route choice
+
+def test_the_three_routes_are_the_ones_the_architecture_defines():
+    from app.ui import panel as panelmod
+    assert panelmod.ROUTES == ("auto", "local", "cloud")
+
+
+def test_prefer_route_actually_selects(monkeypatch):
+    """Request.prefer_route existed for a long time with nothing setting it."""
+    from app.models import registry as reg
+    monkeypatch.setattr(reg, "_ollama_up", lambda: True)
+    monkeypatch.setattr(config, "API_BASE", "https://example.invalid")
+    monkeypatch.setattr(config, "API_KEY", "k")
+    assert reg.select(private=False, prefer="local").local
+    assert not reg.select(private=False, prefer="cloud").local
+
+
+def test_private_still_beats_an_explicit_cloud_preference(monkeypatch):
+    """The one override that must never be honoured."""
+    from app.models import registry as reg
+    monkeypatch.setattr(reg, "_ollama_up", lambda: True)
+    monkeypatch.setattr(config, "API_BASE", "https://example.invalid")
+    monkeypatch.setattr(config, "API_KEY", "k")
+    assert reg.select(private=True, prefer="cloud").local
+
+
+def test_ask_parses_the_route_flag():
+    """--route has to survive being mixed in with the question words."""
+    import app.__main__ as m
+    seen = {}
+
+    class FakePipeline:
+        def __init__(self, *a, **k): pass
+        def run(self, req, **k):
+            seen["route"] = req.prefer_route
+            seen["private"] = req.private_toggle
+            seen["q"] = req.question
+            class T:
+                def lines(self): return []
+            return type("R", (), {"answer": "", "trace": T()})()
+
+    original = m.Pipeline
+    m.Pipeline = FakePipeline
+    try:
+        m.cmd_ask(["--route", "cloud", "why", "is", "this", "slow?"])
+        assert seen == {"route": "cloud", "private": False, "q": "why is this slow?"}, seen
+        m.cmd_ask(["--private", "--route=local", "hello"])
+        assert seen["route"] == "local" and seen["private"] is True
+    finally:
+        m.Pipeline = original

@@ -570,6 +570,42 @@ context window *"remains the scarcest shared resource"*, with memory, skills, to
 traces all competing for one finite budget — *"a harness-level coordination problem."* **It names the
 problem. It does not solve it for the local-to-frontier span.**
 
+### ★ 4.5a The live ledger — where C1 is actually implemented
+
+Reserving space for tool *schemas* before generation is the easy half. The half that matters is what
+happens when a tool **returns**: a result arriving mid-loop must be paid for out of the same allowance
+the packer already spent.
+
+> **This was documented before it was true.** `client.py`'s own docstring said *"each tool result
+> re-enters the budget"* while the code appended `result[:4000]` and hoped. Measured: four tool steps
+> against an 8192-token local model overflow the window by **~2320 tokens**. The model then truncates
+> from the far end — which is exactly where the system prompt and the memory live — so the visible
+> symptom is *the model ignoring its instructions*, and nothing points at the budget.
+
+**What happens now, per tool result, in `Packed.make_room()` and `_charge_tool_result()`:**
+
+| | |
+|---|---|
+| **it fits** | charge it against `used`, nothing else changes |
+| **it does not fit** | **evict the lowest-ranked admitted memory** until it does — bottom of the ranker's order first, because that is the item the ranker already called least useful — then **re-render the prompt** and push it back into the live message list |
+| **it still does not fit** | truncate the result, and **say so inside the text**, so the model knows it is reasoning from a fragment rather than assuming it has the whole thing |
+| **there is no room at all** | omit the result entirely, and tell the model **not to invent the contents** |
+
+**Identity is never evicted.** Not a special case bolted on — it is the same decision the fill order
+above already makes when it puts *system + Identity* first and calls it *small, always*. A web search
+result that costs you your own voice is a bad trade at any size, and identity items are small enough
+that protecting them frees almost nothing anyway.
+
+> **Every eviction is reported**, through the same provenance path as every other drop. A tool result
+> that costs you a memory is a trade PERCH made on your behalf without asking, so the panel says which
+> items went and why — the auditability argument in §4.6 applies to eviction exactly as it does to
+> admission.
+
+**This is the difference between having a budget and coordinating one.** Any system can cap a prompt.
+C1's claim is that memory and tools draw on a single allowance whose size comes from
+`context_window` alone — so the same layer serves a 4B local model and a frontier API, and the
+*only* thing that changes is a number in the registry.
+
 ## 4.6 What is genuinely ours — stated precisely
 
 | | |
@@ -691,6 +727,18 @@ model-agnostic.
 
 ⚠️ **Automatic adaptive routing is v2.** The user chooses; switching is one click.
 
+**Where that click is:**
+
+| Surface | |
+|---|---|
+| **Panel** | a `route: auto / local / cloud` control beside the Private switch, cycling on click. In private mode it reads **`route: local (forced)`** and cycling is inert — the registry enforces local regardless, so showing anything else would be a lie about where the request is going |
+| **CLI** | `python -m app ask --route local "…"`, plus `--private` |
+| **Default** | `PERCH_ROUTE=local\|cloud\|auto` |
+| **Inspect** | `python -m app models` lists what this machine can actually reach, with context windows and capabilities, and names the route a request would take right now |
+
+> `auto` is **local-then-cloud**, not adaptive selection. Naming it `auto` rather than `smart` keeps
+> the promise the size it actually is.
+
 ## 7.3 Private mode — declared, never inferred
 
 **Content classification is the wrong answer here.** A classifier whose false negative leaks a company
@@ -793,7 +841,7 @@ item is forced local automatically** — with the panel saying why.
 | **1** | **Working prototype**: OS layer + panel + model routing + typed memory + ranker/admission/packer + tool loop + streaming + live stage tracker | **done — 34 tests** |
 | **1a** | Panel chrome: drag, resize, persisted geometry, provenance chips | **done** |
 | **2** | **Import**: export parsers, class-typed extraction, CLI review triage | **done — 15 tests** |
-| 3 | Budget packer + registry, local and cloud, private mode | |
+| **3** | **Execution**: live budget ledger (tool results evict memory), registry, route choice in panel + CLI, private mode | **done — 14 tests** |
 | 4 | Full view, sessions, screenshots, OCR | |
 | 5 | Evaluation: OP-Bench, LongMemEval, ablation, latency, packet capture | |
 | 6 | Tauri port, installer, docs, release | |
