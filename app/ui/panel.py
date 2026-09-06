@@ -40,6 +40,11 @@ from ..memory import classes as mc
 from ..os_layer import inject, winapi
 from ..tools import registry as toolreg
 
+# The three routes §7.2 defines. "auto" is local-then-cloud, not adaptive
+# routing -- that is explicitly v2, and calling this cycle "auto" rather than
+# "smart" keeps the promise honest.
+ROUTES = ("auto", "local", "cloud")
+
 # ------------------------------------------------------------------ palette
 
 KEY = "#0b0b0d"          # transparency key -- must appear nowhere else
@@ -198,6 +203,7 @@ class Panel:
                      fill=BG, outline=BORDER, width=1, tags="card")
 
         self.private = tk.BooleanVar(value=False)
+        self.route = config.DEFAULT_ROUTE if config.DEFAULT_ROUTE in ROUTES else "auto"
         self._build(selection, capture_method)
 
         # Resize grip, bottom-right. An overrideredirect window gets no native
@@ -393,6 +399,18 @@ class Panel:
         )
         chk.pack(side="right")
 
+        # §7.2 says the user chooses the route and switching is one click.
+        # Until now Request.prefer_route existed and nothing ever set it, so
+        # model choice -- the thing C1 is about -- was only reachable through
+        # an environment variable and a restart. Cycling on click keeps it to
+        # one control in a panel that has no room for a dropdown.
+        self.route_btn = tk.Label(
+            ask_row, text=self._route_text(), bg=BG, fg=MUTED,
+            font=_t("micro"), cursor="hand2", padx=8)
+        self.route_btn.pack(side="right")
+        self.route_btn.bind("<Button-1>", lambda _e: self._cycle_route())
+        self.private.trace_add("write", lambda *_: self._sync_route_label())
+
         entry_card = tk.Frame(outer, bg=CARD, highlightthickness=1,
                               highlightbackground=BORDER, highlightcolor=ACCENT)
         entry_card.pack(fill="x", pady=(0, 8))
@@ -500,6 +518,7 @@ class Panel:
             source_app=self.host.title if self.host else "",
             source_title=self.host.title if self.host else "",
             private_toggle=self.private.get(),
+            prefer_route=None if self.route == "auto" else self.route,
         )
 
         # Both callbacks fire on the pipeline's worker thread, so every one
@@ -521,6 +540,31 @@ class Panel:
             self.root.after(0, lambda: self._show(response))
 
         threading.Thread(target=work, daemon=True).start()
+
+    # --------------------------------------------------------- route choice
+
+    def _route_text(self) -> str:
+        if self.private.get():
+            # Not a disabled control with a tooltip -- just the truth. In
+            # private mode the registry enforces local regardless of what
+            # this says, so showing anything else would be a lie about where
+            # the request is going.
+            return "route: local (forced)"
+        return f"route: {self.route}"
+
+    def _sync_route_label(self) -> None:
+        try:
+            self.route_btn.configure(
+                text=self._route_text(),
+                fg=WARN if self.private.get() else MUTED)
+        except tk.TclError:
+            pass
+
+    def _cycle_route(self) -> None:
+        if self.private.get():
+            return                      # nothing to choose; local is enforced
+        self.route = ROUTES[(ROUTES.index(self.route) + 1) % len(ROUTES)]
+        self._sync_route_label()
 
     # --------------------------------------------------- write confirmation
 

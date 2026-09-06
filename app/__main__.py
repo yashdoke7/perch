@@ -8,6 +8,7 @@
     python -m app memory          what is stored, by class
     python -m app rebuild         rebuild the index from the files
     python -m app hotkeys         probe which key combos are free on this machine
+    python -m app models          which routes this machine can reach
 """
 
 from __future__ import annotations
@@ -179,14 +180,69 @@ def _handle(pipeline: Pipeline, kind: str, root: "tk.Tk") -> "Panel | None":
 # ------------------------------------------------------------- subcommands
 
 def cmd_ask(argv: list[str]) -> None:
-    """Headless. The whole pipeline, no window -- this is what tests drive."""
+    """Headless. The whole pipeline, no window -- this is what tests drive.
+
+        python -m app ask [--route local|cloud|auto] [--private] "question"
+    """
     config.ensure_dirs()
-    question = " ".join(argv) or "who am I?"
+
+    route = None
+    private = False
+    words: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--route" and i + 1 < len(argv):
+            route = argv[i + 1].lower()
+            i += 2
+            continue
+        if arg.startswith("--route="):
+            route = arg.split("=", 1)[1].lower()
+        elif arg == "--private":
+            private = True
+        else:
+            words.append(arg)
+        i += 1
+
+    if route and route not in ("local", "cloud", "auto"):
+        print(f"unknown route {route!r} — use local, cloud or auto")
+        return
+
+    question = " ".join(words) or "who am I?"
     pipeline = Pipeline(MemoryStore())
-    response = pipeline.run(Request(question=question))
+    response = pipeline.run(Request(question=question, prefer_route=route,
+                                    private_toggle=private))
     print("\n".join(response.trace.lines()))
     print("\n--- answer ---")
     print(response.answer)
+
+
+def cmd_models() -> None:
+    """What this machine can actually route to, right now.
+
+    §7.2 promises the user chooses the route. That promise needs somewhere to
+    look before it means anything -- otherwise "switching is one click" is a
+    click into an unknown set.
+    """
+    models = registry.available()
+    print("routes available here:\n")
+    for m in models:
+        where = "local" if m.local else "cloud"
+        caps = ", ".join(filter(None, [
+            "tools" if m.tools else "", "vision" if m.vision else ""])) or "chat only"
+        note = "  (fallback — no real model reachable)" if m.provider == "stub" else ""
+        print(f"  {m.key:<7} {m.model_id:<22} {where:<6} "
+              f"{m.context_window:>7} tok  {caps}{note}")
+
+    chosen = registry.select(private=False)
+    private = registry.select(private=True)
+    print(f"\n  default route   {config.DEFAULT_ROUTE!r} -> {chosen.label()}")
+    print(f"  private route   always local -> {private.label()}")
+    print("\nOverride per request:  python -m app ask --route local \"...\"")
+    print("Or set PERCH_ROUTE=local|cloud|auto for the default.")
+    if not config.API_BASE or not config.API_KEY:
+        print("\nNo cloud route configured. Set PERCH_API_BASE and PERCH_API_KEY "
+              "to add one.")
 
 
 def cmd_memory() -> None:
@@ -354,6 +410,8 @@ def main() -> None:
         cmd_import(rest)
     elif cmd == "rebuild":
         cmd_rebuild()
+    elif cmd == "models":
+        cmd_models()
     elif cmd == "ablate":
         from .ablate import run
         run()
