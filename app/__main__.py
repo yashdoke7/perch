@@ -9,6 +9,7 @@
     python -m app rebuild         rebuild the index from the files
     python -m app hotkeys         probe which key combos are free on this machine
     python -m app models          which routes this machine can reach
+    python -m app eval [e2 e5 ...] run the Part X experiments that can run here
 """
 
 from __future__ import annotations
@@ -387,6 +388,16 @@ def cmd_hotkeys() -> None:
         print("\nNothing free in that list -- try adding Shift, or a function key.")
 
 
+def cmd_eval(argv: list[str]) -> None:
+    """Part X, run. Prints all seven experiments including the ones that did
+    not run, because an evaluation is defined as much by what it did not
+    measure as by what it did."""
+    config.ensure_dirs()
+    from .eval import harness
+    results = harness.run([a for a in argv if not a.startswith("-")] or None)
+    print(harness.report(results))
+
+
 def cmd_rebuild() -> None:
     store = MemoryStore()
     print(f"reindexed {store.rebuild()} items from {store.root}")
@@ -412,6 +423,8 @@ def main() -> None:
         cmd_rebuild()
     elif cmd == "models":
         cmd_models()
+    elif cmd == "eval":
+        cmd_eval(rest)
     elif cmd == "ablate":
         from .ablate import run
         run()
