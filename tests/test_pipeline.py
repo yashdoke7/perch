@@ -801,3 +801,170 @@ def test_ask_parses_the_route_flag():
         assert seen["route"] == "local" and seen["private"] is True
     finally:
         m.Pipeline = original
+
+
+# --------------------------------------------------- ★ Phase 5: the eval harness
+#
+# The property under test is not "the numbers are right" -- an experiment
+# decides that. It is that the harness cannot QUIETLY not measure something.
+# The gap between "we did not measure this" and "we measured this and it was
+# fine" is the whole difference between an evaluation and a claim.
+
+def test_all_seven_experiments_are_always_reported():
+    from app.eval import harness
+    names = set(harness.all_experiments())
+    assert names == {"e1", "e2", "e3", "e4", "e5", "e6", "e7"}
+
+
+def test_the_external_benchmarks_are_marked_not_run_with_a_reason():
+    """E1 and E3 need datasets not vendored here. They must never look like
+    passes, and E1 must not let OP-Bench's number be read as ours."""
+    from app.eval import harness
+    for result in (harness.e1_over_personalisation(), harness.e3_retrieval_quality()):
+        assert not result.ran
+        assert result.reason.strip(), f"{result.name} gives no reason"
+        assert "NOT RUN" in result.render()
+    e1 = harness.e1_over_personalisation()
+    assert "not ours of PERCH" in e1.reason
+
+
+def test_uia_coverage_says_why_it_cannot_be_simulated():
+    from app.eval import harness
+    e7 = harness.e7_uia_coverage()
+    assert not e7.ran
+    assert "mock" in e7.reason, "the point is that mocking it measures the mock"
+
+
+def test_the_report_names_what_did_not_run():
+    from app.eval import harness
+    text = harness.report([harness.e1_over_personalisation(),
+                           harness.e3_retrieval_quality(),
+                           harness.e7_uia_coverage()])
+    assert "0 of 3 experiments ran" in text
+    for name in ("E1", "E3", "E7"):
+        assert name in text
+    assert "what it did not measure" in text
+
+
+def test_a_crashing_experiment_is_reported_not_swallowed():
+    """A crash must never be mistaken for 'did not apply'."""
+    from app.eval import harness
+    original = harness.all_experiments
+
+    def boom():
+        return {"e2": lambda: 1 / 0}
+
+    harness.all_experiments = boom
+    try:
+        results = harness.run(["e2"])
+    finally:
+        harness.all_experiments = original
+    assert len(results) == 1 and not results[0].ran
+    assert "ZeroDivisionError" in results[0].reason
+
+
+def test_e2_runs_offline_and_reaches_a_verdict(store):
+    """C1 is a claim about assembly, so it is measurable with no model."""
+    from app.eval import e2_budget
+    result = e2_budget.run()
+    assert result.ran
+    assert result.verdict
+    assert "CONFIRMED" in result.verdict
+    body = "\n".join(result.lines)
+    for window in ("4096", "8192", "128000"):
+        assert window in body, f"{window} missing from the ablation"
+
+
+def test_e2_reports_the_tool_contention_half(store):
+    """The half that only became measurable once the ledger existed."""
+    from app.eval import e2_budget
+    body = "\n".join(e2_budget.run().lines)
+    assert "append blindly" in body and "live ledger" in body
+    assert "OVERFLOWS" in body, "config B must overflow somewhere, or C proves nothing"
+
+
+def test_e4_refuses_to_score_on_the_fallback_embedder(store):
+    """The harness inherits the ablation's own refusal rather than working
+    around it -- one number, one source."""
+    from app.eval import e4_admission
+    from app.memory import embed
+    result = e4_admission.run()
+    if embed.is_semantic():
+        assert result.ran
+    else:
+        assert not result.ran and "hashed" in result.reason
+
+
+def test_e5_classifies_loopback_as_local_and_everything_else_as_remote():
+    from app.eval import e5_privacy
+    assert e5_privacy._is_local(("127.0.0.1", 11434))
+    assert e5_privacy._is_local(("::1", 11434, 0, 0))
+    assert not e5_privacy._is_local(("104.18.0.1", 443))
+    assert not e5_privacy._is_local(("api.openai.com", 443))
+
+
+def test_e5_recorder_actually_sees_a_connection():
+    """If the instrumentation misses connections, a pass means nothing."""
+    import socket
+    from app.eval import e5_privacy
+    with e5_privacy._Recorder() as rec:
+        s = socket.socket()
+        s.settimeout(0.05)
+        try:
+            s.connect(("127.0.0.1", 9))     # discard port; refusal is fine
+        except OSError:
+            pass
+        finally:
+            s.close()
+    assert rec.attempts, "the recorder saw nothing, so it would pass anything"
+    assert not rec.remote
+
+
+def test_e5_restores_the_original_connect():
+    """A permanently patched socket would poison every later test."""
+    import socket
+    from app.eval import e5_privacy
+    before = socket.socket.connect
+    with e5_privacy._Recorder():
+        pass
+    assert socket.socket.connect is before
+
+
+def test_e5_passes_on_a_real_private_request(store):
+    from app.eval import e5_privacy
+    result = e5_privacy.run()
+    assert result.ran
+    assert "PASSED" in result.verdict, result.verdict
+    assert "packet capture" in "\n".join(result.lines), \
+        "the weaker-than-packet-capture caveat must survive"
+
+
+# ------------------------------------------------- the probe E6 found was slow
+
+def test_the_ollama_probe_is_cached():
+    """It ran on EVERY request and cost ~4s when nothing was listening,
+    because localhost resolves to both ::1 and 127.0.0.1."""
+    from app.models import registry as reg
+    reg.forget_probe()
+    calls = {"n": 0}
+    original = reg.urllib.request.urlopen
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        raise OSError("refused")
+
+    reg.urllib.request.urlopen = counting
+    try:
+        for _ in range(10):
+            reg._ollama_up()
+    finally:
+        reg.urllib.request.urlopen = original
+        reg.forget_probe()
+    assert calls["n"] == 1, f"probed {calls['n']} times; it must be cached"
+
+
+def test_forget_probe_forces_a_fresh_check():
+    """`models` must report what is true now, not what was true 30s ago."""
+    from app.models import registry as reg
+    reg.forget_probe()
+    assert reg._probe is None

@@ -64,6 +64,7 @@ python -m app ask [--route local|cloud|auto] [--private] "why does the panel fre
 python -m app ablate            # the admission ablation -- start here
 python -m app memory            # what is stored, by class
 python -m app models            # which routes this machine can reach
+python -m app eval              # the Part X experiments that can run here
 python -m app prompts           # write the six extraction prompts
 python -m app import <export> <class>   # ChatGPT / Claude / Gemini -> reviewed memory
 python -m pytest tests -q
@@ -149,8 +150,9 @@ app/
   models/     registry · client                                   local first, always
   tools/      web · files · docs · python · memory                the agent surface
   ingest/     exports · extract · review · prompts               ChatGPT / Claude / Gemini
+  eval/       harness · E2 budget · E4 gate · E5 privacy · E6 latency
   ui/         panel                                               the product surface
-tests/        63 tests, no model or network required
+tests/        77 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 

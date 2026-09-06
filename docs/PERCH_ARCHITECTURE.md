@@ -843,7 +843,7 @@ item is forced local automatically** — with the panel saying why.
 | **2** | **Import**: export parsers, class-typed extraction, CLI review triage | **done — 15 tests** |
 | **3** | **Execution**: live budget ledger (tool results evict memory), registry, route choice in panel + CLI, private mode | **done — 14 tests** |
 | 4 | Full view, sessions, screenshots, OCR | |
-| 5 | Evaluation: OP-Bench, LongMemEval, ablation, latency, packet capture | |
+| **5** | **Evaluation harness**: E2, E4, E5, E6 runnable offline; E1/E3/E7 reported as unrun with reasons | **partial — 14 tests.** E1/E3 need external datasets, E7 needs a human |
 | 6 | Tauri port, installer, docs, release | |
 
 ## 9.3 Team split (5)
@@ -870,6 +870,58 @@ item is forced local automatically** — with the panel saying why.
 | **E6** | Latency | trigger → first token, local vs cloud |
 | **E7** | **UIA coverage per application** | measured table across common Windows apps. No competitor publishes one |
 
+## 10.1 ★ What actually runs — `python -m app eval`
+
+**Four of the seven run on any machine with this repository and nothing else. Three do not.**
+
+```
+E1  over-personalisation     needs OP-Bench             NOT RUNNABLE HERE
+E2  budget assembly (C1)     needs nothing              ★ runs
+E3  retrieval quality        needs LongMemEval/LoCoMo   NOT RUNNABLE HERE
+E4  admission gate (C2)      needs a real embedder      runs when one is live
+E5  privacy: zero egress     needs nothing              ★ runs
+E6  latency                  stages: nothing            ★ runs (generation half needs a model)
+E7  UIA coverage             needs a human at a desktop NOT RUNNABLE HERE
+```
+
+**The harness prints all seven every time**, with the three that did not run marked and explained.
+A harness that prints only what it managed to run teaches the reader that the list is complete —
+and the gap between *"we did not measure this"* and *"we measured this and it was fine"* is the
+entire difference between an evaluation and a claim. This is the same principle the gate applies to
+memory and the ablation applies to its own scorecard.
+
+> ⚠️ **On E1 specifically:** the *26.2–61.1% worse than no memory* figure in the table above is
+> **OP-Bench's measurement of other systems**, not ours of PERCH. It is our motivation. Until E1
+> actually runs it must never be presented as a PERCH result, and the harness says so in place of
+> a number.
+
+### E2's result, and the half of it that fails
+
+Running E2 on the **seed** memory gives a two-part answer, and the part that fails is worth more:
+
+| | Finding |
+|---|---|
+| **Assembly alone** | **Does not separate the sizes.** The seed profile is ~1,700 tokens over 18 items, which fits a 4K window comfortably. So on this memory the packer is *not yet load-bearing* — and claiming otherwise would be overclaiming |
+| **With tools** | **Separates sharply.** After four tool calls, appending blindly overflows the 4K window by **~3,400 tokens** while the live ledger fits, paying with evicted items it reports |
+
+> **The honest form of C1, corrected by its own experiment:** *the packer earns its place when memory
+> and tools contend for one allowance — not merely because memory is large.* That is exactly the
+> coordination problem the 2026 externalization survey names, and it is a sharper claim than the one
+> Part X originally made. A real imported history (hundreds of items) is where the assembly half
+> starts to bite; the seed is a demo, not a workload.
+
+### E5 is a necessary condition, not the packet capture
+
+E5 instruments `socket.connect` for the duration of a real private-mode request and classifies every
+address this process reaches. **It proves no code path inside PERCH's own process opened a remote
+connection.** It does *not* prove no bytes left the machine — a subprocess (`run_python` spawns one)
+is invisible to it, as is anything a dependency does through a handle opened earlier.
+
+> **So the packet capture remains the claim to make publicly, and remains unrun.** E5 is what catches
+> the realistic regression: someone wiring a new tool, or an embedding call to a cloud endpoint, without
+> checking the privacy decision first. That second one is easy to miss — the request is private, the
+> model is local, and retrieval still quietly posts your query to an embeddings API.
+
 ---
 
 # PART XI — ★ SELF-CRITIQUE
@@ -894,8 +946,19 @@ its own with a named open problem behind it.
 ### 3. "This is orchestration, not ML."
 **The risk my memory says this panel actually fails people on.** Response: the ranker is a learned
 relevance model, the admission scorer is a calibration problem with per-class thresholds fitted on held
-out data, the packer is constrained optimisation, and there are **four ablations on public benchmarks**.
-**Lead with E1 and E2. Do not open with the popup.**
+out data, and the packer is constrained optimisation.
+
+> ⚠️ **An earlier version of this section then said "and there are four ablations on public
+> benchmarks." That was not true when it was written and it is still not true.** §10.1 is the honest
+> count: **two ablations run** (E2 budget assembly, E4 admission gate) and both are **on our own
+> memory, not on a public benchmark**. The two public-benchmark experiments — E1 on OP-Bench and E3
+> on LongMemEval/LoCoMo — **have never been run**, because neither dataset is vendored here.
+>
+> **This is the objection's strongest version, and the answer is to run E1, not to phrase item 3
+> better.** Until then the defensible sentence is *"two ablations, on our own data, with the
+> benchmark work identified and not yet done"* — which is weaker, and true.
+
+**Lead with E2 and E4, the two that actually produce numbers. Do not open with the popup.**
 
 ### 4. "Six classes is arbitrary."
 Honest answer: **it is a design choice, not a derivation.** The defence is that classes are a routing
