@@ -192,12 +192,27 @@ class Pipeline:
         # --- 9. generate, with the tool loop ---------------------------------
         tool_log: list[str] = []
         stage("model", model.model_id)
+        def on_evict(thrown) -> None:
+            # Visible, like every other drop. An eviction caused by a tool
+            # result is a real trade the user made without being asked, so it
+            # belongs in the provenance rather than only in the token count.
+            for s in thrown:
+                trace.dropped.append(s)
+            stage("pack", f"evicted {len(thrown)} for tool results")
+
         answer = client.complete_with_tools(
             model, packed.system, packed.prompt, allow_network, tool_log,
             on_token=on_token,
             on_tool=lambda name: stage("tool", name),
             on_confirm=on_confirm,
+            # ★ C1: the tool loop spends from the SAME allowance the packer
+            # just filled, and pays for overruns with the weakest memory.
+            packed=packed,
+            on_evict=on_evict,
         )
+        # Re-read after the loop: evictions during tool use change both.
+        trace.admitted = packed.included
+        trace.budget = packed.summary()
         trace.tools = tool_log
 
         # --- 10. accounting ---------------------------------------------------

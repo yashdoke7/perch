@@ -158,3 +158,16 @@ def floor_for(name: str) -> float:
 def prior_for(name: str) -> float:
     cls = get(name)
     return cls.prior if cls else 1.0
+
+
+# Classes the budget packer will not evict to make room for a tool result.
+# Identity is the only one, and for the same reason §4.5's fill order lists it
+# first and calls it "small, always": it is what makes an answer sound like
+# the user. A search result that costs someone their own voice is a bad trade
+# at any size, and identity items are small enough that protecting them frees
+# almost nothing anyway.
+PROTECTED_FROM_EVICTION = ("identity",)
+
+
+def is_protected_from_eviction(name: str) -> bool:
+    return (name or "").strip().lower() in PROTECTED_FROM_EVICTION

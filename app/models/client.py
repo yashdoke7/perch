@@ -20,6 +20,71 @@ from .registry import Model
 
 MAX_TOOL_STEPS = 4
 
+# Floor on what a tool result may be squeezed to before we stop pretending it
+# is useful. Below this, a truncated result is noise the model will reason
+# from anyway, so it is better to say the result did not fit.
+MIN_USEFUL_TOOL_CHARS = 300
+
+
+def _charge_tool_result(packed, result: str, on_evict=None) -> str:
+    """★ Contribution 1, at the only point where it is actually testable.
+
+    Tools and memory compete for ONE allowance. The packer spent the budget
+    before generation started; a tool result arriving afterwards must be paid
+    for out of the same pot, and the only currency left is memory the ranker
+    already judged least useful.
+
+    Three outcomes, in order of preference:
+
+        1. it fits            -> charge it, nothing changes
+        2. it does not fit    -> evict the lowest-ranked memory to make room
+        3. still does not fit -> truncate the result and SAY SO in the text,
+                                 so the model knows it is reasoning from a
+                                 fragment rather than silently assuming it
+                                 has the whole thing
+
+    Without this, complete_with_tools appended result[:4000] and hoped. With
+    a 4-step loop against an 8192-token local model that overflows the window
+    by roughly 2300 tokens -- the model then truncates the prompt from the
+    far end, which is where the system prompt and the memory live. The
+    failure looks like the model ignoring its instructions.
+    """
+    if packed is None:                       # callers that do not budget (tests, tools off)
+        return result[:4000]
+
+    cost = int(len(result) / config.CHARS_PER_TOKEN) + 1
+    if cost > packed.headroom:
+        thrown = packed.make_room(cost - packed.headroom)
+        if thrown and on_evict:
+            on_evict(thrown)
+
+    if cost > packed.headroom:
+        keep = max(0, int(packed.headroom * config.CHARS_PER_TOKEN) - 80)
+        if keep < MIN_USEFUL_TOOL_CHARS:
+            return ("[tool result omitted: no context budget left for it. "
+                    "Answer from what you already have, or say you could not "
+                    "retrieve it -- do not invent the contents.]")
+        result = result[:keep] + "\n[...truncated: out of context budget...]"
+
+    packed.charge(result)
+    return result
+
+
+def _refresh_prompt(messages: list[dict], packed) -> None:
+    """Push an evicted prompt back into the conversation.
+
+    make_room() rebuilds Packed.prompt without the memory it threw away, but
+    the model is reading messages[1] -- the copy taken when the loop started.
+    Leaving that stale would make the eviction accounting a lie: we would have
+    told the ledger the tokens were freed while still sending them.
+    """
+    if packed is None or not messages:
+        return
+    for msg in messages:
+        if msg.get("role") == "user":
+            msg["content"] = packed.prompt
+            return
+
 
 def _post(url: str, payload: dict, headers: dict | None = None, timeout: int = 120):
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST")
@@ -87,7 +152,8 @@ def complete(model: Model, system: str, prompt: str) -> str:
 
 def complete_with_tools(model: Model, system: str, prompt: str,
                         allow_network: bool, log: list[str],
-                        on_token=None, on_tool=None, on_confirm=None) -> str:
+                        on_token=None, on_tool=None, on_confirm=None,
+                        packed=None, on_evict=None) -> str:
     """The agent loop: model -> tool call -> result -> model, until it stops.
 
     Both routes get the loop, not just the cloud one -- a student running
@@ -111,17 +177,19 @@ def complete_with_tools(model: Model, system: str, prompt: str,
 
     if model.provider == "openai_compatible":
         return _openai_tool_loop(model, messages, schemas, allow_network, log,
-                                 on_confirm=on_confirm)
+                                 on_confirm=on_confirm, packed=packed,
+                                 on_evict=on_evict)
     if model.provider == "ollama":
         return _ollama_tool_loop(model, messages, schemas, allow_network, log,
                                  on_token=on_token, on_tool=on_tool,
-                                 on_confirm=on_confirm)
+                                 on_confirm=on_confirm, packed=packed,
+                                 on_evict=on_evict)
     return complete(model, system, prompt)
 
 
 def _openai_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
                       allow_network: bool, log: list[str],
-                      on_confirm=None) -> str:
+                      on_confirm=None, packed=None, on_evict=None) -> str:
     for _ in range(MAX_TOOL_STEPS):
         try:
             out = _post(f"{config.API_BASE.rstrip('/')}/chat/completions", {
@@ -148,18 +216,21 @@ def _openai_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
             result = toolreg.dispatch(name, args, allow_network=allow_network,
                                       on_confirm=on_confirm)
             log.append(f"{name}({', '.join(f'{k}={v!r}' for k, v in args.items())[:80]})")
+            charged = _charge_tool_result(packed, result, on_evict)
             messages.append({
                 "role": "tool",
                 "tool_call_id": call["id"],
-                "content": result[:4000],
+                "content": charged,
             })
+            _refresh_prompt(messages, packed)
 
     return "(tool loop did not converge)"
 
 
 def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
                       allow_network: bool, log: list[str],
-                      on_token=None, on_tool=None, on_confirm=None) -> str:
+                      on_token=None, on_tool=None, on_confirm=None,
+                      packed=None, on_evict=None) -> str:
     """Same shape as the OpenAI loop, over /api/chat, but streaming.
 
     Two differences from the OpenAI path: Ollama has no tool_choice knob,
@@ -200,6 +271,8 @@ def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
         if not calls:
             return content
 
+        if packed is not None and content:
+            packed.charge(content)
         messages.append({"role": "assistant", "content": content, "tool_calls": calls})
         for call in calls:
             fn = call.get("function", {})
@@ -215,7 +288,9 @@ def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
             result = toolreg.dispatch(name, args, allow_network=allow_network,
                                       on_confirm=on_confirm)
             log.append(f"{name}({', '.join(f'{k}={v!r}' for k, v in args.items())[:80]})")
-            messages.append({"role": "tool", "content": result[:4000]})
+            charged = _charge_tool_result(packed, result, on_evict)
+            messages.append({"role": "tool", "content": charged})
+            _refresh_prompt(messages, packed)
 
     return "(tool loop did not converge)"
 
