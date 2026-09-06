@@ -11,6 +11,7 @@ private mode it is the only option, enforced here rather than trusted upstream.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -37,12 +38,44 @@ STUB = Model(key="stub", provider="stub", model_id="offline-stub",
              context_window=8192, local=True)
 
 
+# The probe result, cached briefly. Ollama starting or stopping mid-session is
+# rare; paying for the check on every request is not.
+PROBE_TTL = 30.0
+_probe: tuple[float, bool] | None = None
+
+
 def _ollama_up() -> bool:
+    """Is a local Ollama reachable? Cached, because this used to be per-request.
+
+    available() is called on EVERY request, and this probe blocks for up to
+    two seconds when nothing is listening. So on a machine without Ollama --
+    which is exactly the machine the offline story is aimed at -- every panel
+    request stalled two seconds before falling through to the stub, and the
+    delay landed inside model selection where no stage timer could see it.
+    E6 caught it: 20 timed runs took 40 seconds, and the "retrieval latency"
+    it reported was almost entirely this timeout.
+
+    A 30-second TTL keeps a started-Ollama discoverable without a restart
+    while making the steady-state cost zero.
+    """
+    global _probe
+    now = time.monotonic()
+    if _probe is not None and now - _probe[0] < PROBE_TTL:
+        return _probe[1]
     try:
         with urllib.request.urlopen(f"{config.OLLAMA_URL}/api/tags", timeout=2):
-            return True
+            up = True
     except Exception:
-        return False
+        up = False
+    _probe = (now, up)
+    return up
+
+
+def forget_probe() -> None:
+    """Drop the cached probe. For tests, and for `models` which should always
+    report what is true right now rather than what was true 30 seconds ago."""
+    global _probe
+    _probe = None
 
 
 def available() -> list[Model]:
