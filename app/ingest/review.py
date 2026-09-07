@@ -65,7 +65,13 @@ def render(proposal: Proposal, n: int, total: int) -> str:
     """One proposal, in full. Never truncated -- you cannot approve what you
     have not been shown, and this is the only point at which anyone looks."""
     item = proposal.item
-    head = f"── {n}/{total} ── [{item.cls}] ─────────────────────────────"
+    # ASCII, deliberately. Box-drawing (U+2500) is not in cp1252, which is
+    # still the default console encoding on Windows -- the target platform --
+    # so printing it raised UnicodeEncodeError and took the whole import down
+    # at the moment it had proposals to show. main() now forces UTF-8 on
+    # stdout as well, but a review header is not worth a second chance to
+    # break: this is the screen a user has to read to approve their memory.
+    head = f"-- {n}/{total} -- [{item.cls}] " + "-" * 34
     body = "\n".join(f"    {ln}" for ln in item.body.splitlines())
     parts = [
         head,
@@ -85,6 +91,27 @@ def render(proposal: Proposal, n: int, total: int) -> str:
     return "\n".join(parts)
 
 
+def uncalibrated(proposals: list[Proposal]) -> bool:
+    """Did the extractor give every item the same confidence?
+
+    Measured with qwen2.5:3b on a real ChatGPT export: it emitted
+    `confidence: 1` for all four items it produced. It is not estimating
+    anything -- it is filling in the field because the contract asks for it.
+
+    That matters because the number is shown to the reviewer, and a number
+    shown to a human is read as information. Worse, the "extractor was
+    unsure" warning keys off it, so a model that always says 1 silently
+    disables the one automatic signal the review screen had. Better to say
+    the number is meaningless than to display it as though it were not.
+
+    A larger model may calibrate; this is checked per batch rather than
+    assumed either way.
+    """
+    if len(proposals) < 2:
+        return False
+    return len({round(p.confidence, 3) for p in proposals}) == 1
+
+
 def review(proposals: list[Proposal], store: MemoryStore,
            ask=input, out=print) -> Summary:
     """Triage every proposal, then write the accepted ones in one pass."""
@@ -94,6 +121,15 @@ def review(proposals: list[Proposal], store: MemoryStore,
         return summary
 
     out(f"\n{len(proposals)} proposed items. Enter rejects; ? for help.")
+    if uncalibrated(proposals):
+        out(f"\n  !! Every item came back at confidence "
+            f"{proposals[0].confidence:.2f}. The extractor is not calibrating,")
+        out("     it is filling in a required field -- so ignore that number here,")
+        out("     and read each body on its own merits.")
+    out("\n  Extracted text is a model's PARAPHRASE of your conversation, not a")
+    out("  quote from it. Small models restate confidently and get details wrong,")
+    out("  including inventing outcomes that were never stated. That is what this")
+    out("  screen is for.")
     out(HELP)
 
     bulk: str | None = None          # set by 'a' or 'd' to skip the prompt

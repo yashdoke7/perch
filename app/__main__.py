@@ -10,6 +10,7 @@
     python -m app hotkeys         probe which key combos are free on this machine
     python -m app models          which routes this machine can reach
     python -m app eval [e2 e5 ...] run the Part X experiments that can run here
+    python -m app dedupe [--apply] find and merge duplicate memory items
 """
 
 from __future__ import annotations
@@ -398,12 +399,68 @@ def cmd_eval(argv: list[str]) -> None:
     print(harness.report(results))
 
 
+def cmd_dedupe(argv: list[str]) -> None:
+    """Clean up duplicates that got past the write-path merge.
+
+    Dry-run unless --apply, because this deletes memory files and the files
+    are the truth: there is no undo.
+    """
+    apply = "--apply" in argv
+    store = MemoryStore()
+    groups = store.dedupe(apply=False)
+    if not groups:
+        print(f"no duplicates among {store.count()} items")
+        return
+
+    total = sum(len(d) for _, d in groups)
+    print(f"{len(groups)} duplicate group(s), {total} item(s) would be removed "
+          f"from {store.count()}:\n")
+    for keeper_id, dupe_ids in groups:
+        keeper = store.get(keeper_id)
+        print(f"  keep   [{keeper.cls}] {keeper.title}  (uses={keeper.uses})")
+        for dupe_id in dupe_ids:
+            dupe = store.get(dupe_id)
+            if dupe:
+                print(f"  merge    {dupe.id}  (uses={dupe.uses})")
+        print()
+
+    if not apply:
+        print("Dry run - nothing was changed. Re-run with --apply to merge.")
+        return
+
+    store.dedupe(apply=True)
+    print(f"merged. {store.count()} items remain.")
+
+
 def cmd_rebuild() -> None:
     store = MemoryStore()
     print(f"reindexed {store.rebuild()} items from {store.root}")
 
 
+def _make_stdout_unbreakable() -> None:
+    """Stop a printed character from being able to kill a command.
+
+    Windows still defaults the console to cp1252, and Python's default error
+    handler on stdout is strict -- so a single character outside that codepage
+    raises UnicodeEncodeError from print() and takes the command down. That is
+    not hypothetical: `import --dry-run` crashed exactly here, after a
+    successful extraction, at the moment it had proposals to display. The
+    model's own output is user text from arbitrary conversations, so it can
+    contain anything at all; no amount of care in our own format strings makes
+    this safe.
+
+    UTF-8 where the console supports it, replacement characters where it does
+    not, and never an exception either way.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass          # a redirected or exotic stream; nothing to do
+
+
 def main() -> None:
+    _make_stdout_unbreakable()
     argv = sys.argv[1:]
     if not argv:
         return run_agent()
@@ -425,6 +482,8 @@ def main() -> None:
         cmd_models()
     elif cmd == "eval":
         cmd_eval(rest)
+    elif cmd == "dedupe":
+        cmd_dedupe(rest)
     elif cmd == "ablate":
         from .ablate import run
         run()
