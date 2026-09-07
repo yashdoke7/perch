@@ -269,6 +269,83 @@ class MemoryStore:
                 best = (item_id, sim)
         return best
 
+    # ---------------------------------------------------------------- dedupe
+
+    def find_duplicates(self, threshold: float = DUPLICATE_AT) -> list[tuple[str, list[str]]]:
+        """Groups of near-identical items in the same class: (keeper, [dupes]).
+
+        add() already prevents duplicates on the write path (§3.4 rule 3), so
+        this exists to clean up what got past it. The stale-index bug is how
+        they got there: a cross-dimension cosine is 0.0, which never reaches
+        the 0.92 merge threshold, so re-seeding under a different embedding
+        backend created a second copy of every item -- and the twins then
+        competed with each other at retrieval time, each halving the other's
+        apparent distinctiveness.
+
+        The keeper is the most-used item, then the oldest: use count is
+        evidence the user has actually relied on that copy.
+        """
+        groups: list[tuple[str, list[str]]] = []
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT id, class, vector, uses, updated FROM items"
+            ).fetchall()
+
+        by_class: dict[str, list] = {}
+        for item_id, cls_name, vec_json, uses, updated in rows:
+            by_class.setdefault(cls_name, []).append(
+                (item_id, json.loads(vec_json), uses, updated))
+
+        for members in by_class.values():
+            claimed: set[str] = set()
+            for i, (id_a, vec_a, uses_a, upd_a) in enumerate(members):
+                if id_a in claimed:
+                    continue
+                twins = []
+                for id_b, vec_b, uses_b, upd_b in members[i + 1:]:
+                    if id_b in claimed or len(vec_a) != len(vec_b):
+                        continue
+                    if embed.cosine(vec_a, vec_b) >= threshold:
+                        twins.append((id_b, uses_b, upd_b))
+                if not twins:
+                    continue
+                family = [(id_a, uses_a, upd_a)] + twins
+                family.sort(key=lambda r: (-r[1], r[2]))    # most used, then oldest
+                keeper = family[0][0]
+                dupes = [r[0] for r in family[1:]]
+                claimed.update([keeper] + dupes)
+                groups.append((keeper, dupes))
+        return groups
+
+    def dedupe(self, apply: bool = False,
+               threshold: float = DUPLICATE_AT) -> list[tuple[str, list[str]]]:
+        """Merge duplicate groups into their keeper. Dry-run unless apply=True.
+
+        Dry-run by default because this DELETES memory files, and the files
+        are the truth -- there is no undo. The caller is expected to show the
+        user what would go before anything does.
+        """
+        groups = self.find_duplicates(threshold)
+        if not apply:
+            return groups
+
+        for keeper_id, dupe_ids in groups:
+            keeper = self.get(keeper_id)
+            if keeper is None:
+                continue
+            for dupe_id in dupe_ids:
+                dupe = self.get(dupe_id)
+                if dupe is not None:
+                    # Union rather than discard: a twin may carry a tag the
+                    # keeper lacks, and losing it would be a silent downgrade.
+                    keeper.tags = sorted(set(keeper.tags) | set(dupe.tags))
+                    keeper.entities = sorted(set(keeper.entities) | set(dupe.entities))
+                    keeper.uses = max(keeper.uses, dupe.uses)
+                self.forget(dupe_id)
+            with self._lock:
+                self._write(keeper, embed.embed(keeper.indexed_text))
+        return groups
+
     # ---------------------------------------------------------------- rebuild
 
     def rebuild(self) -> int:
