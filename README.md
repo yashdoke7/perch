@@ -64,6 +64,7 @@ python -m app ask [--route local|cloud|auto] [--private] "why does the panel fre
 python -m app ablate            # the admission ablation -- start here
 python -m app memory            # what is stored, by class
 python -m app models            # which routes this machine can reach
+python -m app dedupe            # find duplicate memory (--apply to merge)
 python -m app eval              # the Part X experiments that can run here
 python -m app prompts           # write the six extraction prompts
 python -m app import <export> <class>   # ChatGPT / Claude / Gemini -> reviewed memory
@@ -86,6 +87,8 @@ Ask it a medical question and watch what each configuration does:
   B global tau           0            2 / 3
   C ours                 0            3 / 3
 ```
+
+✅ **Measured, not claimed** — reproduced on `nomic-embed-text` over the deduplicated seed, 7 Sept 2026.
 
 > **This table needs a real embedder, and the command refuses to print one without it.** On the
 > hashed fallback the ablation *inverts*: config C abstains on every query and scores 0/3, because a
@@ -152,7 +155,7 @@ app/
   ingest/     exports · extract · review · prompts               ChatGPT / Claude / Gemini
   eval/       harness · E2 budget · E4 gate · E5 privacy · E6 latency
   ui/         panel                                               the product surface
-tests/        77 tests, no model or network required
+tests/        92 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 

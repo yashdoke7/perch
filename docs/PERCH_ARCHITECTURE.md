@@ -843,7 +843,7 @@ item is forced local automatically** — with the panel saying why.
 | **2** | **Import**: export parsers, class-typed extraction, CLI review triage | **done — 15 tests** |
 | **3** | **Execution**: live budget ledger (tool results evict memory), registry, route choice in panel + CLI, private mode | **done — 14 tests** |
 | 4 | Full view, sessions, screenshots, OCR | |
-| **5** | **Evaluation harness**: E2, E4, E5, E6 runnable offline; E1/E3/E7 reported as unrun with reasons | **partial — 14 tests.** E1/E3 need external datasets, E7 needs a human |
+| **5** | **Evaluation harness**: E2, E4, E5, E6 runnable offline; E1/E3/E7 reported as unrun with reasons | **partial — 14 tests.** E2/E4/E5/E6 verified against a live Ollama; E1/E3 need external datasets, E7 needs a human |
 | 6 | Tauri port, installer, docs, release | |
 
 ## 9.3 Team split (5)
@@ -909,6 +909,28 @@ Running E2 on the **seed** memory gives a two-part answer, and the part that fai
 > coordination problem the 2026 externalization survey names, and it is a sharper claim than the one
 > Part X originally made. A real imported history (hundreds of items) is where the assembly half
 > starts to bite; the seed is a demo, not a workload.
+
+### ★ What a live run against Ollama actually found
+
+**Everything above ran for the first time against `nomic-embed-text` and `qwen2.5:3b` on 7 Sept 2026.
+Four defects surfaced that months of stubbed unit tests had passed straight over** — which is itself
+the finding worth recording:
+
+| Found | |
+|---|---|
+| **`localhost` cost 2 seconds per Ollama call** | Ollama binds IPv4 only; on Windows `localhost` resolves to `::1` first and waits out a timeout before falling back. **2051 ms vs 42 ms via `127.0.0.1`** — a 50× penalty on every embedding and every generation. E6 reported it as 2036 ms of "retrieval latency"; after the fix, 19.5 ms |
+| **`import` crashed on a Windows console** | `review.render()` drew its header in U+2500 box-drawing, absent from cp1252 — so `print()` raised `UnicodeEncodeError` *after* a successful extraction, at the moment it had proposals to show |
+| **Every seed item existed twice** | 18 rows, 9 unique. A cross-dimension cosine is 0.0, never reaching the 0.92 merge threshold, so re-seeding under a different backend duplicated everything and the twins competed at retrieval. Hence `python -m app dedupe` |
+| **The extractor does not calibrate** | `qwen2.5:3b` emitted `confidence: 1` for **all four** items — filling in a required field, not estimating. That silently disabled the review screen's only automatic signal, since the "unsure" warning keys off that number |
+
+**On extraction quality, stated plainly because the review gate depends on it.** The same run produced
+confident, well-formatted, *wrong* items: the model wrote that Electron *"is chosen for its client-side
+functionality"* when the transcript had the user moving away from it, and that a performance problem
+*"has been addressed"* when the user never said so.
+
+> **A 3B extractor invents outcomes.** That is not a reason to abandon the import path — it is the
+> reason §3.4 rule 2 exists. Nothing reaches memory without a human reading it, and the review screen
+> now says so on the way in.
 
 ### E5 is a necessary condition, not the packet capture
 
