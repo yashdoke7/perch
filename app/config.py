@@ -19,7 +19,22 @@ LOG_DIR = ROOT / "logs"
 
 # --------------------------------------------------------------- model routing
 
-OLLAMA_URL = os.environ.get("PERCH_OLLAMA", "http://localhost:11434")
+# 127.0.0.1, NOT localhost, and the difference is not cosmetic.
+#
+# Ollama binds IPv4 only by default. On Windows "localhost" resolves to ::1
+# first, so every call opens an IPv6 connection that nothing answers, waits out
+# a ~2 second timeout, and only then falls back to 127.0.0.1. Measured on this
+# machine: 2051 ms per embeddings call via localhost against 42 ms via
+# 127.0.0.1 -- a 50x penalty paid on EVERY embedding and EVERY generation.
+#
+# It was invisible for a long time because the fallback embedder needs no
+# network at all, so the cost only appeared once a real embedder was running --
+# which is also when it mattered most. E6 caught it: "retrieval latency" of
+# 2036 ms that was almost entirely a DNS-then-timeout dance against ourselves.
+#
+# Override with PERCH_OLLAMA if your Ollama listens elsewhere (OLLAMA_HOST=::
+# makes it bind IPv6 too, in which case localhost is fine again).
+OLLAMA_URL = os.environ.get("PERCH_OLLAMA", "http://127.0.0.1:11434")
 LOCAL_MODEL = os.environ.get("PERCH_LOCAL_MODEL", "qwen2.5:3b")
 EMBED_MODEL = os.environ.get("PERCH_EMBED_MODEL", "nomic-embed-text")
 
