@@ -2,9 +2,15 @@
 
 Run:  python -m pytest tests -q
 
-These do not need a model, a GPU or a network. The embedding backend falls
-back to a hashed bag-of-words, which is enough to exercise routing, ranking,
-admission and packing deterministically.
+These do not need a model, a GPU or a network: the embedding backend is PINNED
+to the hashed bag-of-words, which is enough to exercise routing, ranking,
+admission and packing deterministically, and keeps the suite at a few seconds.
+
+The pin matters. Left to probe, the suite quietly changed shape depending on
+whether Ollama happened to be running -- 9 seconds offline, 134 seconds of HTTP
+round trips when it was up, same assertions either way. The few tests that
+genuinely need retrieval QUALITY opt in through the semantic_store fixture and
+skip when no real embedder is reachable.
 """
 
 from __future__ import annotations
@@ -19,6 +25,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 _TMP = tempfile.mkdtemp(prefix="perch-test-")
 os.environ["PERCH_HOME"] = _TMP
 
+# Pin the embedding backend for the bulk of the suite.
+#
+# Without this the suite silently changes shape depending on whether Ollama
+# happens to be running: 9 seconds and no network when it is not, 134 seconds
+# of HTTP round trips when it is. Same tests, same assertions, wildly
+# different meaning -- and the docstring above claiming "no network required"
+# quietly became false the moment a real embedder appeared.
+#
+# So: hashed by default, which is deterministic, offline and fast, and is all
+# the plumbing tests need. The handful that genuinely test retrieval QUALITY
+# opt in via the semantic_store fixture below.
+os.environ.setdefault("PERCH_EMBED_BACKEND", "hashed")
+
 import pytest  # noqa: E402
 
 from app import config  # noqa: E402
@@ -29,16 +48,29 @@ from app.memory.schema import MemoryItem  # noqa: E402
 from app.memory.store import MemoryStore  # noqa: E402
 
 
-# Tests that depend on retrieval QUALITY (does a genuinely relevant item score
-# above its floor?) need a real embedding model. The hashed fallback matches
-# only literal shared vocabulary, and its related/unrelated distributions
-# overlap -- see embed.is_semantic(). Those tests skip rather than fail when no
-# embedder is reachable, so the suite is honest on a machine without Ollama
-# instead of silently passing or failing on which happened to be running.
+def _real_embedder_reachable() -> bool:
+    """Is a real embedder available, regardless of what the suite pinned?"""
+    import urllib.request
+    from app import config as _config
+    try:
+        with urllib.request.urlopen(f"{_config.OLLAMA_URL}/api/tags", timeout=2):
+            return True
+    except Exception:
+        return False
+
+
+_HAS_REAL_EMBEDDER = _real_embedder_reachable()
+
+# Tests that depend on retrieval QUALITY -- does a genuinely relevant item
+# score above its floor? -- cannot run on the hashed stand-in, whose related
+# and unrelated distributions overlap (see embed.is_semantic). They skip
+# rather than fail when no embedder is reachable, so the suite is honest on a
+# machine without Ollama instead of passing or failing on which happened to be
+# running.
 needs_semantic = pytest.mark.skipif(
-    not embed.is_semantic(),
-    reason=f"needs a real embedder; backend is {embed.backend()!r}. "
-           "Start Ollama (`ollama pull nomic-embed-text`) or set PERCH_API_BASE.",
+    not _HAS_REAL_EMBEDDER,
+    reason="needs a real embedder. Start Ollama (`ollama pull nomic-embed-text`) "
+           "or set PERCH_API_BASE.",
 )
 
 
@@ -49,6 +81,40 @@ def store() -> MemoryStore:
     for row in SEED:
         s.add(MemoryItem(source_kind="manual", **row))
     return s
+
+
+@pytest.fixture(scope="module")
+def _semantic_store():
+    """The seed, embedded by a REAL model. Built once; costs HTTP round trips."""
+    if not _HAS_REAL_EMBEDDER:
+        pytest.skip("no real embedder")
+    from app.seed import SEED
+    previous = embed._backend
+    embed._backend = "ollama"
+    try:
+        s = MemoryStore(root=Path(_TMP) / "sem-memory",
+                        db=Path(_TMP) / "sem-index.sqlite3")
+        for row in SEED:
+            s.add(MemoryItem(source_kind="manual", **row))
+    finally:
+        embed._backend = previous
+    return s
+
+
+@pytest.fixture
+def semantic_store(_semantic_store):
+    """Switch the live backend to the real one for one test, then restore.
+
+    Restoring matters: leaving it on ollama would make every later test in the
+    session do HTTP, and would mismatch the hashed vectors in the main store --
+    which index_health() would then correctly report as a stale index.
+    """
+    previous = embed._backend
+    embed._backend = "ollama"
+    try:
+        yield _semantic_store
+    finally:
+        embed._backend = previous
 
 
 # ------------------------------------------------------------------ the model
@@ -157,10 +223,11 @@ def test_naive_top_k_would_have_leaked(store):
 
 
 @needs_semantic
-def test_the_gate_still_admits_a_genuine_match(store):
+def test_the_gate_still_admits_a_genuine_match(semantic_store):
     """A gate that never admits anything is not a gate, it is an off switch."""
     q = "why does the panel freeze when the model call is slow?"
-    cands = store.candidates(["project", "identity"], embed.embed(q), config.OVERFETCH)
+    cands = semantic_store.candidates(["project", "identity"], embed.embed(q),
+                                      config.OVERFETCH)
     result = admission.admit(ranker.rank(cands, q))
     assert not result.abstained
     assert any(s.item.cls == "project" for s in result.admitted)
@@ -217,17 +284,17 @@ def test_source_rule_matches_on_where_not_what():
 
 
 @needs_semantic
-def test_admitting_private_class_forces_local(store):
+def test_admitting_private_class_forces_local(semantic_store):
     item = MemoryItem(cls="health", title="Current medication",
                       tags=["medication", "dosage"],
                       body="Prescribed 500 mg twice daily since June 2026.")
-    store.add(item)
+    semantic_store.add(item)
     q = "what is my current medication dosage?"
-    cands = store.candidates(["health"], embed.embed(q), config.OVERFETCH)
+    cands = semantic_store.candidates(["health"], embed.embed(q), config.OVERFETCH)
     result = admission.admit(ranker.rank(cands, q))
     assert result.admitted
     assert result.forces_local, "health memory in the prompt must force local"
-    store.forget(item.id)
+    semantic_store.forget(item.id)
 
 
 def test_private_mode_never_selects_a_cloud_model():
@@ -968,3 +1035,143 @@ def test_forget_probe_forces_a_fresh_check():
     from app.models import registry as reg
     reg.forget_probe()
     assert reg._probe is None
+
+
+# --------------------------------------- ★ what a live run against Ollama found
+#
+# Everything below was written after running the system against a real embedder
+# and a real 3B model for the first time. Each test corresponds to a defect that
+# only a live run could surface -- unit tests with stubbed backends had passed
+# over all of them.
+
+def test_review_render_is_printable_on_a_windows_console():
+    """It was not. U+2500 box-drawing is absent from cp1252, so print() raised
+    UnicodeEncodeError and took `import` down at the moment it finally had
+    proposals to show -- after a successful extraction."""
+    from app.ingest import extract, review
+    props = extract.parse_contract(FAKE_REPLY, "project", platform="chatgpt")
+    text = review.render(props[0], 1, len(props))
+    text.encode("cp1252")           # raises if any character is unencodable
+
+
+def test_every_proposal_field_survives_a_cp1252_console():
+    """The body is a model's text about arbitrary conversations, so it can
+    contain anything. The header being ASCII is not enough on its own."""
+    from app.ingest import extract, review
+    reply = FAKE_REPLY.replace("A personal AI agent", "A personal AI agent — dash")
+    props = extract.parse_contract(reply, "project")
+    rendered = review.render(props[0], 1, 1)
+    rendered.encode("cp1252", errors="replace")     # must not raise
+
+
+def test_uncalibrated_confidence_is_detected():
+    """qwen2.5:3b emitted `confidence: 1` for all four items it produced. It is
+    filling in a required field, not estimating -- and the review screen's only
+    automatic signal keys off that number."""
+    from app.ingest import extract, review
+    props = extract.parse_contract(FAKE_REPLY, "project")
+    for p in props:
+        p.item.confidence = 1.0
+    assert review.uncalibrated(props)
+
+
+def test_varied_confidence_is_not_flagged():
+    from app.ingest import extract, review
+    props = extract.parse_contract(FAKE_REPLY, "project")
+    props[0].item.confidence = 0.9
+    props[1].item.confidence = 0.4
+    assert not review.uncalibrated(props)
+
+
+def test_a_single_proposal_is_never_called_uncalibrated():
+    """One sample says nothing about calibration."""
+    from app.ingest import extract, review
+    props = extract.parse_contract(FAKE_REPLY, "project")[:1]
+    assert not review.uncalibrated(props)
+
+
+def test_ollama_url_avoids_the_localhost_penalty():
+    """Ollama binds IPv4 only. Resolving 'localhost' tries ::1 first and waits
+    out a ~2s timeout on every call -- measured at 2051 ms against 42 ms for
+    127.0.0.1, on every embedding and every generation."""
+    assert "localhost" not in config.OLLAMA_URL, (
+        "localhost costs ~2s per Ollama call on Windows; use 127.0.0.1")
+
+
+# --------------------------------------------------------------- ★ deduplication
+
+def _dupe_store(tmp_path, n=2):
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    body = ("PERCH is a Windows desktop AI agent triggered by a global hotkey, "
+            "answering in a panel beside the user's work.")
+    for i in range(n):
+        # allow_merge=False reproduces what the stale-index bug did: the write
+        # path could not see the twin, so the duplicate was created.
+        s.add(MemoryItem(cls="project", title="PERCH", body=body,
+                         tags=["perch"]), allow_merge=False)
+    return s
+
+
+def test_duplicates_are_found(tmp_path):
+    s = _dupe_store(tmp_path, n=3)
+    assert s.count() == 3
+    groups = s.find_duplicates()
+    assert len(groups) == 1
+    keeper, dupes = groups[0]
+    assert len(dupes) == 2 and keeper not in dupes
+
+
+def test_dedupe_is_a_dry_run_by_default(tmp_path):
+    """It deletes memory files and the files are the truth -- there is no undo."""
+    s = _dupe_store(tmp_path, n=3)
+    s.dedupe()
+    assert s.count() == 3, "a dry run must not change anything"
+
+
+def test_dedupe_apply_collapses_the_group(tmp_path):
+    s = _dupe_store(tmp_path, n=3)
+    s.dedupe(apply=True)
+    assert s.count() == 1
+    assert not s.find_duplicates()
+
+
+def test_dedupe_keeps_the_most_used_copy(tmp_path):
+    """Use count is evidence the user actually relied on that copy."""
+    s = _dupe_store(tmp_path, n=2)
+    ids = [r[0] for r in s.db.execute("SELECT id FROM items").fetchall()]
+    s.touch(ids[1])
+    s.touch(ids[1])
+    s.dedupe(apply=True)
+    survivors = [r[0] for r in s.db.execute("SELECT id FROM items").fetchall()]
+    assert survivors == [ids[1]]
+
+
+def test_dedupe_unions_tags_rather_than_discarding_them(tmp_path):
+    """A twin may carry a tag the keeper lacks; losing it is a silent downgrade."""
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    body = "PERCH is a Windows desktop AI agent triggered by a global hotkey."
+    s.add(MemoryItem(cls="project", title="PERCH", body=body, tags=["perch"]),
+          allow_merge=False)
+    s.add(MemoryItem(cls="project", title="PERCH", body=body, tags=["windows"]),
+          allow_merge=False)
+    s.dedupe(apply=True)
+    remaining = s.get([r[0] for r in s.db.execute("SELECT id FROM items")][0])
+    assert set(remaining.tags) == {"perch", "windows"}
+
+
+def test_dedupe_leaves_genuinely_different_items_alone(tmp_path):
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    s.add(MemoryItem(cls="project", title="A", body="Hotkeys use RegisterHotKey."))
+    s.add(MemoryItem(cls="project", title="B", body="The packer fills a budget."))
+    assert not s.find_duplicates()
+    s.dedupe(apply=True)
+    assert s.count() == 2
+
+
+def test_dedupe_never_merges_across_classes(tmp_path):
+    """A class is a privacy boundary; merging across one would move data."""
+    s = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    body = "Prescribed 500 mg twice daily since June 2026."
+    s.add(MemoryItem(cls="health", title="Meds", body=body), allow_merge=False)
+    s.add(MemoryItem(cls="personal", title="Meds", body=body), allow_merge=False)
+    assert not s.find_duplicates(), "identical bodies in different classes are not duplicates"
