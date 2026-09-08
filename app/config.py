@@ -36,6 +36,27 @@ LOG_DIR = ROOT / "logs"
 # makes it bind IPv6 too, in which case localhost is fine again).
 OLLAMA_URL = os.environ.get("PERCH_OLLAMA", "http://127.0.0.1:11434")
 LOCAL_MODEL = os.environ.get("PERCH_LOCAL_MODEL", "qwen2.5:3b")
+
+# ★ The context window PERCH REQUESTS from Ollama, and the number the whole
+# budget is computed from. It is sent as options.num_ctx on every call.
+#
+# This has to be requested, not assumed, and that is Contribution 1's whole
+# foundation. Ollama's default num_ctx is 4096 REGARDLESS of what the model
+# supports -- qwen2.5:3b advertises 32768 and Ollama still serves 4096 unless
+# told otherwise. Measured here: a ~15,000-token prompt came back with
+# prompt_eval_count = 4095 by default and 8191 with num_ctx=8192. Everything
+# past the limit is discarded silently.
+#
+# So the packer was carefully evicting memory to fit a 6068-token budget
+# derived from a hardcoded 8192, while Ollama served 4096 and threw the
+# overflow away -- and it truncates from the front, which is exactly where the
+# system prompt and the admitted memory sit. Every budget measurement in
+# Part X was computed against a window that did not exist.
+#
+# 8192 is a deliberate middle: comfortably above the 4096 default, small
+# enough that a 3B model still fits in modest VRAM. Raise it if you have the
+# memory; registry.available() caps it at what the model actually supports.
+NUM_CTX = int(os.environ.get("PERCH_NUM_CTX", "8192"))
 EMBED_MODEL = os.environ.get("PERCH_EMBED_MODEL", "nomic-embed-text")
 
 API_BASE = os.environ.get("PERCH_API_BASE")      # any OpenAI-compatible endpoint

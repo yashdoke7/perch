@@ -121,6 +121,21 @@ def _post_lines(url: str, payload: dict, headers: dict | None = None, timeout: i
                 continue
 
 
+def _ollama_options(model: Model) -> dict:
+    """The options every Ollama call must carry.
+
+    num_ctx is the load-bearing one. Ollama defaults it to 4096 regardless of
+    what the model supports, and silently discards anything past it -- from
+    the front, where our system prompt and admitted memory live. Without this
+    the packer's budget is a number we computed and nobody honoured, which
+    makes C1 a claim about arithmetic rather than about the model's context.
+
+    Sending it is what makes registry.Model.context_window true by
+    construction instead of by assumption.
+    """
+    return {"num_ctx": model.context_window}
+
+
 def complete(model: Model, system: str, prompt: str) -> str:
     """One shot, no tools. Used by the local path and by the extractor."""
     if model.provider == "ollama":
@@ -129,6 +144,7 @@ def complete(model: Model, system: str, prompt: str) -> str:
                 "model": model.model_id,
                 "prompt": f"{system}\n\n{prompt}",
                 "stream": False,
+                "options": _ollama_options(model),
             })
             return (out.get("response") or "").strip()
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -251,6 +267,7 @@ def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
                 "messages": messages,
                 "tools": schemas,
                 "stream": True,
+                "options": _ollama_options(model),
             }):
                 msg = chunk.get("message") or {}
                 for call in (msg.get("tool_calls") or []):

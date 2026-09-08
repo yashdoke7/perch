@@ -78,20 +78,62 @@ def forget_probe() -> None:
     _probe = None
 
 
+_meta: dict[str, dict] = {}
+
+
+def model_meta(model_id: str) -> dict:
+    """Ask Ollama what this model can actually do, rather than assuming.
+
+    /api/show reports `capabilities` (completion / tools / vision) and the
+    model's true context length. Both were previously hardcoded: every local
+    model was declared tools=True regardless, which breaks the tool loop on a
+    model that cannot call one, and vision was never available locally at all.
+
+    Cached, because available() is called on every request.
+    """
+    if model_id in _meta:
+        return _meta[model_id]
+
+    caps: set[str] = set()
+    max_ctx = 0
+    try:
+        req = urllib.request.Request(
+            f"{config.OLLAMA_URL}/api/show",
+            data=json.dumps({"model": model_id}).encode(), method="POST")
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        caps = set(data.get("capabilities") or [])
+        for key, value in (data.get("model_info") or {}).items():
+            if key.endswith(".context_length") and isinstance(value, int):
+                max_ctx = max(max_ctx, value)
+    except Exception:
+        # An unreachable or older Ollama: assume the conservative defaults
+        # that were hardcoded before, rather than declaring nothing.
+        caps = {"completion", "tools"}
+
+    _meta[model_id] = {"capabilities": caps, "max_context": max_ctx}
+    return _meta[model_id]
+
+
+def forget_meta() -> None:
+    _meta.clear()
+
+
 def available() -> list[Model]:
     models: list[Model] = []
     if _ollama_up():
+        meta = model_meta(config.LOCAL_MODEL)
+        caps = meta["capabilities"]
+        # The window we will actually REQUEST -- see config.NUM_CTX and
+        # client._ollama_options(). Capped by what the model can do, because
+        # asking for more than its trained length is how you get nonsense.
+        ceiling = meta["max_context"] or config.NUM_CTX
         models.append(Model(
             key="local", provider="ollama", model_id=config.LOCAL_MODEL,
-            # Conservative: a 3B served by Ollama defaults well below its
-            # advertised maximum, and overstating it truncates answers.
-            context_window=8192, local=True,
-            # Ollama's /api/chat accepts an OpenAI-shaped "tools" list for
-            # models that support function calling (the Qwen and Llama
-            # families do). Declaring it here is what makes the tool loop
-            # -- and therefore memory_search, web_search, file tools -- run
-            # for a purely local, ₹0 setup, not only when a cloud key is set.
-            tools=True,
+            context_window=min(config.NUM_CTX, ceiling), local=True,
+            tools="tools" in caps,
+            vision="vision" in caps,
         ))
     if config.API_BASE and config.API_KEY:
         models.append(Model(

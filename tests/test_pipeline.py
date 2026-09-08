@@ -1175,3 +1175,133 @@ def test_dedupe_never_merges_across_classes(tmp_path):
     s.add(MemoryItem(cls="health", title="Meds", body=body), allow_merge=False)
     s.add(MemoryItem(cls="personal", title="Meds", body=body), allow_merge=False)
     assert not s.find_duplicates(), "identical bodies in different classes are not duplicates"
+
+
+# ------------------------------ ★ the context window has to be REQUESTED, not assumed
+#
+# Ollama defaults num_ctx to 4096 regardless of what the model supports, and
+# discards everything past it -- from the front, where the system prompt and
+# the admitted memory live. Measured: a ~15,000-token prompt came back with
+# prompt_eval_count 4095 by default and 8191 with num_ctx=8192.
+#
+# So the packer was evicting memory to fit a 6068-token budget derived from a
+# hardcoded 8192, while the model was served 4096 and threw the rest away.
+# Every budget number in Part X was computed against a window that did not
+# exist. These tests exist so that cannot come back.
+
+def test_every_ollama_call_sends_num_ctx():
+    """The one that makes context_window true by construction."""
+    from app.models import client
+    from app.models.registry import Model
+    m = Model(key="local", provider="ollama", model_id="x", context_window=8192,
+              local=True, tools=True)
+    assert client._ollama_options(m) == {"num_ctx": 8192}
+
+
+def test_num_ctx_follows_the_model_not_a_constant():
+    from app.models import client
+    from app.models.registry import Model
+    small = Model(key="a", provider="ollama", model_id="x", context_window=4096,
+                  local=True)
+    big = Model(key="b", provider="ollama", model_id="y", context_window=32768,
+                local=True)
+    assert client._ollama_options(small)["num_ctx"] == 4096
+    assert client._ollama_options(big)["num_ctx"] == 32768
+
+
+def test_both_ollama_endpoints_carry_the_options():
+    """generate() and the streaming chat loop are separate call sites, and
+    fixing only one leaves half the requests truncating silently."""
+    import inspect
+    import re
+    from app.models import client
+    source = inspect.getsource(client)
+    # Every Ollama payload dict, and whether it carries the options. Matching
+    # the URL then scanning to the closing brace is what makes this survive a
+    # docstring that happens to mention the endpoint.
+    for endpoint in ("/api/generate", "/api/chat"):
+        blocks = re.findall(
+            re.escape(endpoint) + r'"[^{]*\{(.*?)\n\s*\}\)', source, re.S)
+        assert blocks, f"no payload found for {endpoint}"
+        for block in blocks:
+            assert "_ollama_options" in block, f"{endpoint} payload is missing num_ctx"
+
+
+def test_capabilities_come_from_ollama_not_from_an_assumption(monkeypatch):
+    """Every local model used to be declared tools=True, which breaks the tool
+    loop on a model that cannot call one."""
+    from app.models import registry as reg
+    reg.forget_meta()
+
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self):
+            import json as _json
+            return _json.dumps({
+                "capabilities": ["completion", "vision"],
+                "model_info": {"llama.context_length": 16384},
+            }).encode()
+
+    monkeypatch.setattr(reg.urllib.request, "urlopen", lambda *a, **k: FakeResponse())
+    meta = reg.model_meta("pretend-vision-model")
+    assert "vision" in meta["capabilities"]
+    assert "tools" not in meta["capabilities"], "must not invent tool support"
+    assert meta["max_context"] == 16384
+    reg.forget_meta()
+
+
+def test_model_meta_is_cached(monkeypatch):
+    """available() runs on every request; /api/show must not."""
+    from app.models import registry as reg
+    reg.forget_meta()
+    calls = {"n": 0}
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        raise OSError("nope")
+
+    monkeypatch.setattr(reg.urllib.request, "urlopen", counting)
+    for _ in range(5):
+        reg.model_meta("same-model")
+    assert calls["n"] == 1, f"queried {calls['n']} times; must be cached"
+    reg.forget_meta()
+
+
+def test_unreachable_show_falls_back_conservatively(monkeypatch):
+    """An older Ollama has no /api/show capabilities field. Declaring nothing
+    would disable the tool loop entirely, which is worse than assuming."""
+    from app.models import registry as reg
+    reg.forget_meta()
+    monkeypatch.setattr(reg.urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("no")))
+    meta = reg.model_meta("old-ollama-model")
+    assert "tools" in meta["capabilities"]
+    reg.forget_meta()
+
+
+def test_the_requested_window_is_capped_by_what_the_model_supports(monkeypatch):
+    """Asking for more than a model's trained length produces nonsense."""
+    from app.models import registry as reg
+    reg.forget_probe(); reg.forget_meta()
+    monkeypatch.setattr(reg, "_ollama_up", lambda: True)
+    monkeypatch.setattr(reg, "model_meta", lambda _m: {
+        "capabilities": {"completion", "tools"}, "max_context": 2048})
+    monkeypatch.setattr(config, "NUM_CTX", 8192)
+    local = [m for m in reg.available() if m.provider == "ollama"][0]
+    assert local.context_window == 2048
+    reg.forget_probe(); reg.forget_meta()
+
+
+def test_the_packer_budget_follows_the_requested_window():
+    """The chain the whole of C1 rests on: NUM_CTX -> context_window ->
+    num_ctx on the wire -> the budget the packer spends."""
+    from app.models.registry import Model
+    from app.models import client
+    m = Model(key="local", provider="ollama", model_id="x",
+              context_window=8192, local=True, tools=True)
+    packed = packer.pack("q", "", [], context_window=m.context_window,
+                         tools_declared=m.tools)
+    served = client._ollama_options(m)["num_ctx"]
+    assert packed.budget < served, (
+        "the packer must budget strictly inside the window actually served")
