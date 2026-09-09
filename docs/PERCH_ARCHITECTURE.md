@@ -842,7 +842,7 @@ item is forced local automatically** — with the panel saying why.
 | **1a** | Panel chrome: drag, resize, persisted geometry, provenance chips | **done** |
 | **2** | **Import**: export parsers, class-typed extraction, CLI review triage | **done — 15 tests** |
 | **3** | **Execution**: live budget ledger (tool results evict memory), registry, route choice in panel + CLI, private mode | **done — 14 tests** |
-| 4 | Full view, sessions, screenshots, OCR | |
+| **4** | Screenshots reach the model (vision, with honest refusal when unsupported); multi-turn follow-ups | **partial — 10 tests.** Full view and OCR not started |
 | **5** | **Evaluation harness**: E2, E4, E5, E6 runnable offline; E1/E3/E7 reported as unrun with reasons | **partial — 14 tests.** E2/E4/E5/E6 verified against a live Ollama; E1/E3 need external datasets, E7 needs a human |
 | 6 | Tauri port, installer, docs, release | |
 

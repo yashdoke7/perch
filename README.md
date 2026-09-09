@@ -155,7 +155,7 @@ app/
   ingest/     exports · extract · review · prompts               ChatGPT / Claude / Gemini
   eval/       harness · E2 budget · E4 gate · E5 privacy · E6 latency
   ui/         panel                                               the product surface
-tests/        92 tests, no model or network required
+tests/        110 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 

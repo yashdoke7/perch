@@ -1212,19 +1212,33 @@ def test_num_ctx_follows_the_model_not_a_constant():
 def test_both_ollama_endpoints_carry_the_options():
     """generate() and the streaming chat loop are separate call sites, and
     fixing only one leaves half the requests truncating silently."""
-    import inspect
-    import re
     from app.models import client
-    source = inspect.getsource(client)
-    # Every Ollama payload dict, and whether it carries the options. Matching
-    # the URL then scanning to the closing brace is what makes this survive a
-    # docstring that happens to mention the endpoint.
-    for endpoint in ("/api/generate", "/api/chat"):
-        blocks = re.findall(
-            re.escape(endpoint) + r'"[^{]*\{(.*?)\n\s*\}\)', source, re.S)
-        assert blocks, f"no payload found for {endpoint}"
-        for block in blocks:
-            assert "_ollama_options" in block, f"{endpoint} payload is missing num_ctx"
+    from app.models.registry import Model
+    m = Model(key="local", provider="ollama", model_id="x", context_window=8192,
+              local=True, tools=True)
+    seen: list[tuple[str, dict]] = []
+
+    # Intercept the transport rather than reading the source. Source-scanning
+    # broke twice while this file was being written -- once on a docstring that
+    # mentioned the endpoint, once when a payload moved into a local variable --
+    # and each time it failed for a reason that had nothing to do with whether
+    # num_ctx was actually sent. What matters is what goes on the wire.
+    original_post, original_lines = client._post, client._post_lines
+    client._post = lambda url, payload, *a, **k: seen.append((url, payload)) or {}
+    client._post_lines = lambda url, payload, *a, **k: (
+        seen.append((url, payload)) or iter(()))
+    try:
+        client.complete(m, "sys", "prompt")
+        client._ollama_tool_loop(m, [{"role": "user", "content": "hi"}], [],
+                                 True, [])
+    finally:
+        client._post, client._post_lines = original_post, original_lines
+
+    endpoints = {url.rsplit("/api/", 1)[-1] for url, _ in seen}
+    assert {"generate", "chat"} <= endpoints, f"only reached {endpoints}"
+    for url, payload in seen:
+        assert payload.get("options", {}).get("num_ctx") == 8192, (
+            f"{url} was sent without num_ctx: {payload.get('options')}")
 
 
 def test_capabilities_come_from_ollama_not_from_an_assumption(monkeypatch):
@@ -1305,3 +1319,131 @@ def test_the_packer_budget_follows_the_requested_window():
     served = client._ollama_options(m)["num_ctx"]
     assert packed.budget < served, (
         "the packer must budget strictly inside the window actually served")
+
+
+# --------------------------------------- ★ Phase 4: the screenshot reaches the model
+#
+# T3 captured a region, saved a PNG, and then described it to the model as
+# "(screenshot: 800x600px saved to x.png)" -- a filename it had no way to open.
+# The trigger worked and the picture went nowhere, so Ctrl+Alt+K was decorative.
+
+def _png(tmp_path):
+    from PIL import Image
+    p = tmp_path / "shot.png"
+    Image.new("RGB", (40, 20), "white").save(p)
+    return p
+
+
+def _vision_model(vision=True):
+    from app.models.registry import Model
+    return Model(key="local", provider="ollama", model_id="v", context_window=8192,
+                 local=True, tools=True, vision=vision)
+
+
+def test_an_image_is_attached_to_the_ollama_message(tmp_path):
+    from app.models import client
+    sent = {}
+    original = client._post_lines
+    client._post_lines = lambda url, payload, *a, **k: (
+        sent.update(payload) or iter(()))
+    try:
+        client.complete_with_tools(_vision_model(), "sys", "prompt", True, [],
+                                   image_path=str(_png(tmp_path)))
+    finally:
+        client._post_lines = original
+    user = [m for m in sent["messages"] if m["role"] == "user"][0]
+    assert user.get("images"), "the image never reached the payload"
+
+
+def test_the_single_shot_path_attaches_images_too(tmp_path):
+    """A model without tool support still has to be able to see a screenshot."""
+    from app.models import client
+    sent = {}
+    original = client._post
+    client._post = lambda url, payload, *a, **k: sent.update(payload) or {}
+    try:
+        client.complete(_vision_model(), "sys", "prompt",
+                        image_path=str(_png(tmp_path)))
+    finally:
+        client._post = original
+    assert sent.get("images"), "generate() dropped the image"
+
+
+def test_a_missing_capture_does_not_lose_the_request(tmp_path):
+    """A file that vanished between the drag and the send is a reason to answer
+    without it, not to fail."""
+    from app.models import client
+    assert client._encode_image(str(tmp_path / "gone.png")) is None
+    sent = {}
+    original = client._post
+    client._post = lambda url, payload, *a, **k: sent.update(payload) or {}
+    try:
+        client.complete(_vision_model(), "sys", "prompt",
+                        image_path=str(tmp_path / "gone.png"))
+    finally:
+        client._post = original
+    assert "images" not in sent
+    assert sent.get("prompt"), "the request itself must still go"
+
+
+def test_a_model_without_vision_is_told_it_cannot_see(tmp_path):
+    """The failure that matters: a model handed a filename it cannot open will
+    describe the picture anyway."""
+    packed = packer.pack("what is this?", "", [], context_window=8192,
+                         image_unreadable=True)
+    assert "NOT attached" in packed.system
+    assert "Do not guess" in packed.system
+
+
+def test_an_attached_image_is_announced_in_the_system_prompt():
+    packed = packer.pack("what is this?", "", [], context_window=8192,
+                         image_attached=True)
+    assert "attached to this message" in packed.system
+    assert "NOT attached" not in packed.system
+
+
+def test_the_pipeline_reports_what_happened_to_the_image(tmp_path, store, monkeypatch):
+    """Provenance for the picture, like every other decision."""
+    from app.core.pipeline import Pipeline, Request
+    from app.models import registry as reg
+    monkeypatch.setattr(reg, "select", lambda **k: _vision_model(vision=False))
+    trace = Pipeline(store).run(Request(question="what is this?",
+                                        image_path=str(_png(tmp_path)))).trace
+    assert "NOT READ" in trace.vision
+    assert any("image" in line for line in trace.lines())
+
+
+def test_no_image_means_no_vision_note(store):
+    from app.core.pipeline import Pipeline, Request
+    trace = Pipeline(store).run(Request(question="who am I?")).trace
+    assert trace.vision == ""
+
+
+# ------------------------------------------------- ★ Phase 4: multi-turn follow-ups
+
+def test_history_reaches_the_prompt():
+    """Request.history and the packer supported this from the start; the panel
+    never populated it, so every question was a fresh single shot and a
+    follow-up like "shorter" referred to nothing."""
+    packed = packer.pack("make it shorter", "", [], context_window=8192,
+                         history=[("user", "draft an email"),
+                                  ("assistant", "Here is a draft...")])
+    assert "draft an email" in packed.prompt
+    assert "RECENT CONVERSATION" in packed.prompt
+
+
+def test_history_is_capped_so_chat_cannot_starve_memory():
+    from app.ui import panel as panelmod
+    assert 0 < panelmod.MAX_HISTORY_TURNS <= 20
+
+
+def test_the_panel_records_both_halves_of_an_exchange():
+    """Recorded before rendering, so a display bug cannot cost the user their
+    conversation."""
+    import inspect
+    from app.ui.panel import Panel
+    source = inspect.getsource(Panel._show)
+    assert 'self.history.append(("user"' in source
+    assert 'self.history.append(("assistant"' in source
+    assert source.index("self.history.append") < source.index("_render_chips"), \
+        "history must be recorded before anything that can raise"
