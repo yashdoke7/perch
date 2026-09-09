@@ -155,9 +155,22 @@ def _tokens(text: str) -> int:
     return int(len(text) / config.CHARS_PER_TOKEN) + 1
 
 
+IMAGE_ATTACHED = (
+    "\n\nA screenshot the user captured is attached to this message. Read it "
+    "and answer about what it shows.")
+
+# Said in the prompt, not only in the panel, because the model is the one that
+# would otherwise invent a description of a picture it never received.
+IMAGE_UNREADABLE = (
+    "\n\nNOTE: the user captured a screenshot, but the model answering this "
+    "request cannot read images, so it was NOT attached. Say plainly that you "
+    "could not see it. Do not guess at its contents.")
+
+
 def pack(question: str, selection: str, admitted: list[Scored],
          context_window: int, history: list[tuple[str, str]] | None = None,
-         abstained: bool = False, tools_declared: bool = False) -> Packed:
+         abstained: bool = False, tools_declared: bool = False,
+         image_attached: bool = False, image_unreadable: bool = False) -> Packed:
 
     reserves = config.RESERVE_RESPONSE + config.RESERVE_SYSTEM
     if tools_declared:
@@ -166,6 +179,10 @@ def pack(question: str, selection: str, admitted: list[Scored],
 
     used = 0
     system = BASE_SYSTEM + (ABSTAIN_NOTE if abstained else "")
+    if image_attached:
+        system += IMAGE_ATTACHED
+    elif image_unreadable:
+        system += IMAGE_UNREADABLE
     used += _tokens(system)
 
     # (2) the selection -- always, truncated from the middle if it is enormous,

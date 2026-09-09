@@ -45,6 +45,13 @@ from ..tools import registry as toolreg
 # "smart" keeps the promise honest.
 ROUTES = ("auto", "local", "cloud")
 
+# How many exchanges the panel carries into the next question. The packer
+# truncates oldest-first anyway (§4.5 fill order, step 3), so this is a
+# ceiling on what it is ever asked to consider rather than a hard limit on
+# the conversation -- but an unbounded list would grow a long session's prompt
+# until memory started being evicted to pay for chat nobody referred to again.
+MAX_HISTORY_TURNS = 6
+
 # ------------------------------------------------------------------ palette
 
 KEY = "#0b0b0d"          # transparency key -- must appear nowhere else
@@ -164,10 +171,17 @@ def _rounded_rect(canvas: tk.Canvas, x1, y1, x2, y2, r, **kw):
 
 class Panel:
     def __init__(self, pipeline: Pipeline, selection: str, capture_method: str,
-                 host: winapi.WindowInfo | None, master: tk.Misc) -> None:
+                 host: winapi.WindowInfo | None, master: tk.Misc,
+                 image_path: str = "") -> None:
         self.pipeline = pipeline
         self.selection = selection
         self.host = host
+        self.image_path = image_path
+        # The conversation so far, so a follow-up like "shorter" means
+        # something. Request.history and the packer have supported this since
+        # the pipeline was written; the panel simply never populated it, so
+        # every question was a fresh single shot.
+        self.history: list[tuple[str, str]] = []
         self.answer = ""
         self.busy = False
         self._dots_job = None
@@ -519,6 +533,8 @@ class Panel:
             source_title=self.host.title if self.host else "",
             private_toggle=self.private.get(),
             prefer_route=None if self.route == "auto" else self.route,
+            image_path=self.image_path,
+            history=list(self.history),
         )
 
         # Both callbacks fire on the pipeline's worker thread, so every one
@@ -667,6 +683,13 @@ class Panel:
 
     def _show(self, response: Response) -> None:
         self.busy = False
+        # Record the turn BEFORE anything can fail below, so a rendering bug
+        # cannot silently cost the user their conversation.
+        question = self.prompt.get().strip()
+        if question and response.answer:
+            self.history.append(("user", question))
+            self.history.append(("assistant", response.answer))
+            del self.history[:-MAX_HISTORY_TURNS * 2]
         if self._dots_job:
             self.root.after_cancel(self._dots_job)
             self._dots_job = None

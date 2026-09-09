@@ -32,6 +32,11 @@ class Request:
     source_path: str = ""
     private_toggle: bool = False
     prefer_route: str | None = None
+    # A region screenshot, when one was captured. Before this the shot was
+    # taken, saved, and described to the model as "(screenshot: 800x600px
+    # saved to x.png)" -- a filename it could not open. The trigger worked and
+    # the picture went nowhere.
+    image_path: str = ""
     history: list[tuple[str, str]] = field(default_factory=list)
 
 
@@ -48,6 +53,7 @@ class Trace:
     private: bool = False
     model: str = ""
     budget: str = ""
+    vision: str = ""          # what happened to an attached image, if any
     tools: list[str] = field(default_factory=list)
     ms: int = 0
 
@@ -70,6 +76,8 @@ class Trace:
             f"model     {self.model}",
             f"budget    {self.budget}",
         ]
+        if self.vision:
+            out.append(f"image     {self.vision}")
         if self.tools:
             out.append(f"tools     {', '.join(self.tools)}")
         out.append(f"elapsed   {self.ms} ms")
@@ -167,6 +175,20 @@ class Pipeline:
         model = registry.select(private=decision.private, prefer=req.prefer_route)
         trace.model = model.label()
 
+        # --- 7a. can this model actually look at the screenshot? -------------
+        # Decided here rather than at capture time, because it depends on the
+        # model the privacy decision just selected -- and a private request
+        # may be routed to a local model with no vision at all.
+        image_for_model = ""
+        if req.image_path:
+            if model.vision:
+                image_for_model = req.image_path
+                trace.vision = f"attached to {model.model_id}"
+            else:
+                trace.vision = (f"NOT READ - {model.model_id} has no vision. "
+                                "Pull a vision model (e.g. `ollama pull moondream`) "
+                                "or route to a vision-capable cloud model.")
+
         # --- 8. pack into the budget -----------------------------------------
         allow_network = not decision.private
         packed = packer.pack(
@@ -176,6 +198,8 @@ class Pipeline:
             context_window=model.context_window,
             history=req.history,
             abstained=result.abstained,
+            image_attached=bool(image_for_model),
+            image_unreadable=bool(req.image_path) and not image_for_model,
             # Non-network tools (memory_search, file_read, run_python) are
             # still declared in private mode -- only web_search/web_fetch
             # drop out, see tools/registry.py:schemas(). So the budget must
@@ -209,6 +233,7 @@ class Pipeline:
             # just filled, and pays for overruns with the weakest memory.
             packed=packed,
             on_evict=on_evict,
+            image_path=image_for_model,
         )
         # Re-read after the loop: evictions during tool use change both.
         trace.admitted = packed.included

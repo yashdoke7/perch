@@ -26,6 +26,20 @@ MAX_TOOL_STEPS = 4
 MIN_USEFUL_TOOL_CHARS = 300
 
 
+def _encode_image(path: str) -> str | None:
+    """A screenshot as base64, the way Ollama wants it on a message.
+
+    Returns None rather than raising: a capture that vanished between the drag
+    and the request is a reason to answer without it, not to lose the request.
+    """
+    import base64
+    from pathlib import Path as _Path
+    try:
+        return base64.b64encode(_Path(path).read_bytes()).decode("ascii")
+    except OSError:
+        return None
+
+
 def _charge_tool_result(packed, result: str, on_evict=None) -> str:
     """★ Contribution 1, at the only point where it is actually testable.
 
@@ -136,16 +150,21 @@ def _ollama_options(model: Model) -> dict:
     return {"num_ctx": model.context_window}
 
 
-def complete(model: Model, system: str, prompt: str) -> str:
+def complete(model: Model, system: str, prompt: str, image_path: str = "") -> str:
     """One shot, no tools. Used by the local path and by the extractor."""
     if model.provider == "ollama":
         try:
-            out = _post(f"{config.OLLAMA_URL}/api/generate", {
+            payload = {
                 "model": model.model_id,
                 "prompt": f"{system}\n\n{prompt}",
                 "stream": False,
                 "options": _ollama_options(model),
-            })
+            }
+            if image_path:
+                encoded = _encode_image(image_path)
+                if encoded:
+                    payload["images"] = [encoded]
+            out = _post(f"{config.OLLAMA_URL}/api/generate", payload)
             return (out.get("response") or "").strip()
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             return f"(local model unreachable: {exc})"
@@ -169,7 +188,7 @@ def complete(model: Model, system: str, prompt: str) -> str:
 def complete_with_tools(model: Model, system: str, prompt: str,
                         allow_network: bool, log: list[str],
                         on_token=None, on_tool=None, on_confirm=None,
-                        packed=None, on_evict=None) -> str:
+                        packed=None, on_evict=None, image_path: str = "") -> str:
     """The agent loop: model -> tool call -> result -> model, until it stops.
 
     Both routes get the loop, not just the cloud one -- a student running
@@ -183,12 +202,17 @@ def complete_with_tools(model: Model, system: str, prompt: str,
     confirming tools are refused rather than silently allowed.
     """
     if not model.tools:
-        return complete(model, system, prompt)
+        return complete(model, system, prompt, image_path=image_path)
 
     schemas = toolreg.schemas(allow_network=allow_network)
+    user_msg: dict = {"role": "user", "content": prompt}
+    if image_path:
+        encoded = _encode_image(image_path)
+        if encoded:
+            user_msg["images"] = [encoded]
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": prompt},
+        user_msg,
     ]
 
     if model.provider == "openai_compatible":

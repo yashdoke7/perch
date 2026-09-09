@@ -168,8 +168,13 @@ def _handle(pipeline: Pipeline, kind: str, root: "tk.Tk") -> "Panel | None":
         if shot is None:
             print("[trigger] screenshot cancelled")
             return None
-        note = f"(screenshot: {shot.width}x{shot.height}px saved to {shot.path.name})"
-        panel = Panel(pipeline, note, "none", host, master=root)
+        note = f"(screenshot: {shot.width}x{shot.height}px)"
+        # The PATH goes to the panel now, not just a description of it. The
+        # picture used to be captured, saved, and then represented to the
+        # model as a filename it had no way to open.
+        panel = Panel(pipeline, note, "screenshot", host, master=root,
+                      image_path=str(shot.path))
+        print(f"[trigger] screenshot {shot.width}x{shot.height} -> {shot.path.name}")
 
     else:
         panel = Panel(pipeline, "", "none", host, master=root)
