@@ -150,15 +150,21 @@ def _ollama_options(model: Model) -> dict:
     return {"num_ctx": model.context_window}
 
 
-def complete(model: Model, system: str, prompt: str, image_path: str = "") -> str:
-    """One shot, no tools. Used by the local path and by the extractor."""
+def complete(model: Model, system: str, prompt: str, image_path: str = "",
+             options: dict | None = None) -> str:
+    """One shot, no tools. Used by the local path, the extractor and E1.
+
+    `options` adds sampling settings (E1 pins temperature and seed so a
+    rerun reproduces). num_ctx still comes from the model and cannot be
+    overridden here -- that number is what the budget was computed from.
+    """
     if model.provider == "ollama":
         try:
             payload = {
                 "model": model.model_id,
                 "prompt": f"{system}\n\n{prompt}",
                 "stream": False,
-                "options": _ollama_options(model),
+                "options": {**(options or {}), **_ollama_options(model)},
             }
             if image_path:
                 encoded = _encode_image(image_path)
@@ -177,6 +183,8 @@ def complete(model: Model, system: str, prompt: str, image_path: str = "") -> st
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
+                **({"temperature": options["temperature"]}
+                   if options and "temperature" in options else {}),
             }, {"Authorization": f"Bearer {config.API_KEY}"})
             return out["choices"][0]["message"]["content"].strip()
         except Exception as exc:
@@ -313,7 +321,7 @@ def _ollama_tool_loop(model: Model, messages: list[dict], schemas: list[dict],
             return content
 
         if packed is not None and content:
-            packed.charge(content)
+            packed.charge(content, kind="turn")
         messages.append({"role": "assistant", "content": content, "tool_calls": calls})
         for call in calls:
             fn = call.get("function", {})

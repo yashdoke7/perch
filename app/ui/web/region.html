@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>PERCH region</title>
+<style>
+  /*
+   * The screenshot selector. The screen was captured BEFORE this window
+   * opened; what you see is that still frame, dimmed. You drag on the still,
+   * and the crop is taken from the full-resolution original in Python -- so
+   * nothing moves under the cursor and DPI scaling cannot shift the crop.
+   */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; cursor: crosshair;
+               user-select: none; font: 13px "Segoe UI Variable Text", "Segoe UI", sans-serif; }
+  #frame { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: fill; pointer-events: none; }
+  #dim { position: fixed; inset: 0; background: rgba(6, 6, 8, .42); pointer-events: none; }
+  #sel { position: fixed; display: none; border: 1.5px solid #5ec8c0; pointer-events: none;
+         box-shadow: 0 0 0 100vmax rgba(6, 6, 8, .52); border-radius: 2px; }
+  #size { position: fixed; display: none; padding: 2px 7px; border-radius: 5px; background: #5ec8c0; color: #071614;
+          font: 600 11px "Cascadia Mono", Consolas, monospace; pointer-events: none; }
+  #hint { position: fixed; left: 50%; top: 26px; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px;
+          background: rgba(20, 20, 23, .92); color: #ecebe6; border: 1px solid #35353d; pointer-events: none;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, .35); white-space: nowrap; }
+  #hint b { color: #5ec8c0; font-weight: 600; }
+</style>
+</head>
+<body>
+<img id="frame" alt="">
+<div id="dim"></div>
+<div id="sel"></div>
+<div id="size"></div>
+<div id="hint">Drag to select what PERCH should read · <b>Esc</b> to cancel</div>
+<script>
+"use strict";
+let api = null, origin = null, rect = null;
+const sel = document.getElementById("sel"), size = document.getElementById("size");
+const dim = document.getElementById("dim"), hint = document.getElementById("hint");
+
+async function start() {
+  if (api || !(window.pywebview && window.pywebview.api && window.pywebview.api.frame)) return;
+  api = window.pywebview.api;
+  const f = await api.frame();
+  document.getElementById("frame").src = f.src;
+}
+window.addEventListener("pywebviewready", start);
+start();
+
+function draw(x0, y0, x1, y1) {
+  const x = Math.min(x0, x1), y = Math.min(y0, y1), w = Math.abs(x1 - x0), h = Math.abs(y1 - y0);
+  rect = { x, y, w, h };
+  Object.assign(sel.style, { display: "block", left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+  size.textContent = `${Math.round(w * devicePixelRatio)} × ${Math.round(h * devicePixelRatio)}`;
+  Object.assign(size.style, { display: "block", left: x + "px", top: Math.max(4, y - 24) + "px" });
+}
+
+document.addEventListener("pointerdown", (e) => {
+  origin = { x: e.clientX, y: e.clientY };
+  dim.style.display = "none";
+  hint.style.display = "none";
+  draw(origin.x, origin.y, origin.x, origin.y);
+});
+document.addEventListener("pointermove", (e) => { if (origin) draw(origin.x, origin.y, e.clientX, e.clientY); });
+document.addEventListener("pointerup", () => {
+  if (!origin) return;
+  origin = null;
+  if (rect && rect.w >= 4 && rect.h >= 4 && api) {
+    api.done(Object.assign({ vw: innerWidth, vh: innerHeight }, rect));
+  } else {
+    sel.style.display = size.style.display = "none";
+    dim.style.display = "block";
+    hint.style.display = "block";
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && api) api.cancel();
+});
+</script>
+</body>
+</html>

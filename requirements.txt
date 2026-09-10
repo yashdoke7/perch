@@ -3,6 +3,18 @@ pywin32>=306          # HWNDs, clipboard, synthesised input
 uiautomation>=2.0.20  # selection capture, Path A
 pillow>=10.0          # region screenshot
 
+# --- required: the app window, tray and on-device OCR ---
+pywebview>=5.0        # the panel: WebView2 (Edge) via pythonnet
+pystray>=0.19         # the tray icon
+winrt-runtime>=2.0    # Windows.Media.Ocr -- reads screenshots on-device
+winrt-Windows.Media.Ocr>=2.0
+winrt-Windows.Graphics.Imaging>=2.0
+winrt-Windows.Storage>=2.0
+winrt-Windows.Storage.Streams>=2.0
+winrt-Windows.Foundation>=2.0
+winrt-Windows.Foundation.Collections>=2.0
+winrt-Windows.Globalization>=2.0
+
 # --- optional: document tools. Everything else runs without them ---
 pypdf>=4.0
 python-docx>=1.1

@@ -173,14 +173,24 @@ def review(proposals: list[Proposal], store: MemoryStore,
         else:
             summary.rejected += 1
 
-    # --- the single write pass ------------------------------------------
-    # Deliberately after the loop, not inside it. Storing as we go would mean
-    # a Ctrl+C in the middle leaves memory in a state the user never saw a
-    # summary of.
+    return commit(proposals, store, summary)
+
+
+def commit(proposals: list[Proposal], store: MemoryStore,
+           summary: Summary | None = None) -> Summary:
+    """The single write pass, shared by the terminal review and the app's
+    review screen -- which is the whole reason review() takes its I/O as
+    arguments. Two front ends, one rule for what reaches memory.
+
+    Runs after triage ends, never during it: storing as we go would mean an
+    interrupted review leaves memory in a state the user never saw summarised.
+    """
+    if summary is None:
+        summary = Summary(accepted=sum(1 for p in proposals if p.accepted),
+                          rejected=sum(1 for p in proposals if not p.accepted))
     for proposal in proposals:
         if not proposal.accepted:
             continue
         stored, how = store.add(proposal.item)
         (summary.merged if how == "merged" else summary.created).append(stored.title)
-
     return summary

@@ -24,18 +24,35 @@ and it knows who you are — because the memory is **yours**, not a vendor's.
 ```bash
 pip install -r requirements.txt
 python -m app seed
-python -m app
+python -m app          # tray icon + shortcuts; the panel appears when summoned
+python -m app open     # ... and open the full view straight away
 ```
+
+Double-click `run_perch.pyw` to start it with no console window (logs go to `~/.perch/logs/perch.log`),
+or turn on **Settings → Start when I sign in**. Only one PERCH runs at a time; a second launch says so.
 
 | Shortcut | |
 |---|---|
 | `Ctrl+Alt+J` | read the current selection, open the panel beside that window |
-| `Ctrl+Alt+K` | drag a region, then ask about it |
+| `Ctrl+Alt+K` | freeze the screen, drag a region, then ask about it (read on-device by Windows OCR) |
 | `Ctrl+Alt+G` | ask with nothing selected |
 | `Esc` | dismiss the panel |
 
-**Drag the header to move it, the bottom-right corner to resize.** Where you put it is remembered, so
-it reopens there instead of being re-placed on every trigger.
+**The panel is a WebView2 window** (pywebview over the Edge runtime every Windows 11 machine has), with
+the Python core unchanged underneath. It opens compact beside your work; the expand button turns it into
+the full app:
+
+| View | |
+|---|---|
+| **Ask** | the conversation, a live stage rail, and *Why this answer* — every memory used or held back, with its score against its class floor, and how the context window was spent |
+| **Conversations** | past exchanges, searchable, resumable. Never retrieved into prompts; private ones are not kept unless you say so |
+| **Memory** | every item, by class, editable in place — plus *Test the gate*: type a question, see what would be recalled and what would be held back, without asking a model |
+| **Import** | pick an export, name the class, review each proposal (`K` keep, `S` skip), then save |
+| **Evaluate** | the seven experiments, runnable from the app |
+| **Settings** | route, models, privacy rules, conversation keeping, startup, data folders |
+
+The window border turns amber in private mode. **Drag the header to move it, the bottom-right corner
+to resize.** Where you put it is remembered (Settings can make it always dock beside the host instead).
 
 **If a shortcut does nothing, something else owns it.** Windows does not report this — a failed
 registration just lets the keystroke fall through to whatever has focus. Probe your machine:
@@ -147,22 +164,25 @@ history contained nothing.
 
 ```
 app/
-  os_layer/   winapi · hotkey · capture · inject · screenshot     Win32, no privileges
-  memory/     classes · schema · store · embed                    6 classes, Markdown + SQLite
+  os_layer/   winapi · hotkey · capture · inject · ocr            Win32 + WinRT OCR, no privileges
+  memory/     classes · schema · store · embed · sessions         6 classes, Markdown + SQLite
   core/       router · ranker · admission · packer · privacy · pipeline
   models/     registry · client                                   local first, always
-  tools/      web · files · docs · python · memory                the agent surface
+  tools/      web · files · docs · python · memory · ocr          the agent surface
   ingest/     exports · extract · review · prompts               ChatGPT / Claude / Gemini
-  eval/       harness · E2 budget · E4 gate · E5 privacy · E6 latency
-  ui/         panel                                               the product surface
-tests/        110 tests, no model or network required
+  eval/       harness · E1 probe · E2 budget · E4 gate · E5 privacy · E6 latency
+  ui/         shell · bridge · web/                               the app: window, tray, API, HTML UI
+  settings    what the Settings screen changes, as plain JSON
+tests/        136 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 
 ## What this is not
 
-- **Not the shipping client.** tkinter and Python throughout. The product is Tauri v2 + Rust for the
-  shell (30–50 MB idle against Electron's 150–300 MB), with this Python as the sidecar.
+- **Not the shipping client yet.** Python throughout, with a WebView2 window. The UI is plain
+  HTML/CSS/JS talking to the core through one API object, so a Tauri v2 + Rust shell can take it over
+  unchanged, with this Python as the sidecar. To work on the UI in a browser with a fake backend:
+  `python -m http.server 5178 --directory app/ui/web`, then open `index.html?mock`.
 - **Not the final retrieval model.** The embedding fallback is a hashed bag of words so the pipeline
   runs anywhere; every real measurement uses Ollama or an API embedder.
 - **Not doing anything privileged.** No driver, no kernel hook, no OS modification, no special

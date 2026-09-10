@@ -1,6 +1,7 @@
 """PERCH prototype entry point.
 
-    python -m app                 run the agent (hotkeys live)
+    python -m app                 run PERCH: tray icon, shortcuts, the panel
+    python -m app open            ... and open the full view straight away
     python -m app seed            write the demo memory set
     python -m app ask "..."       one request, headless -- the pipeline with no UI
     python -m app prompts         write the six extraction prompts to files
@@ -15,173 +16,29 @@
 
 from __future__ import annotations
 
-import queue
 import sys
 import time
-import tkinter as tk
 
 from . import config
 from .core.pipeline import Pipeline, Request
 from .memory.store import MemoryStore
 from .models import registry
-from .os_layer import capture, hotkey, screenshot, winapi
-from .ui.panel import Panel
-
-_requests: "queue.Queue[str]" = queue.Queue()
-
-# How often the root's loop drains the hotkey queue. 25 ms is imperceptible
-# to a user and costs nothing measurable, and it bounds the worst-case delay
-# between pressing the chord and the capture starting.
-POLL_MS = 25
 
 
 # ------------------------------------------------------------------ the agent
 
-def run_agent() -> None:
+def run_agent(open_on_start: bool = False) -> None:
+    """PERCH in the background: tray icon, global shortcuts, the panel.
+
+    The shell (ui/shell.py) owns the window and the summon flow; everything it
+    shows comes from the same Pipeline the CLI uses, through ui/bridge.py.
+    """
     config.ensure_dirs()
-    pipeline = Pipeline(MemoryStore())
-
-    listener = hotkey.HotkeyListener()
-    triggers = [
-        ("selection", config.HOTKEY_SELECTION, config.HOTKEY_SELECTION_FALLBACKS,
-         "ask about the current selection", lambda: _requests.put("selection")),
-        ("screenshot", config.HOTKEY_SCREENSHOT, config.HOTKEY_SCREENSHOT_FALLBACKS,
-         "screenshot a region and ask", lambda: _requests.put("screenshot")),
-        ("plain", config.HOTKEY_PLAIN, config.HOTKEY_PLAIN_FALLBACKS,
-         "ask with nothing selected", lambda: _requests.put("plain")),
-    ]
-    for label, (mods, vk), fallbacks, _desc, callback in triggers:
-        listener.bind(mods, vk, callback, label=label, fallbacks=fallbacks)
-    listener.start()  # blocks briefly; listener.assigned then holds the REAL, live combo
-
-    counts = pipeline.store.counts()
-    total = sum(counts.values())
-    print("PERCH — prototype")
-    print(f"  memory      {total} items  {counts or '(empty — run: python -m app seed)'}")
-    from .memory import embed as _embed
-    print(f"  embeddings  {_embed.backend()}")
-    if not _embed.is_semantic():
-        # Loud, because the degradation is otherwise invisible: retrieval still
-        # "works", it just stops being able to match anything that does not
-        # share literal words, and the admission gate inherits that.
-        print("  !! FALLBACK EMBEDDINGS -- retrieval quality is badly degraded.")
-        print("     The hashed stand-in matches shared vocabulary only, so it")
-        print("     cannot relate 'rewrite this formally' to a note about your")
-        print("     writing style. Start Ollama and `ollama pull nomic-embed-text`,")
-        print("     then run `python -m app rebuild`.")
-    # A stale index is the worse of the two failures, because it is completely
-    # invisible: the affected items do not rank badly, they cannot be compared
-    # at all. Reported at startup so it is fixed before it is mistaken for the
-    # gate being too strict.
-    health = pipeline.store.index_health()
-    if health["stale"]:
-        print(f"  !! STALE INDEX -- {health['stale']} of {health['total']} items were "
-              "embedded by another backend")
-        print(f"     (dimensions found: {health['dims']}, live: {health['live_dim']}). "
-              "They are UNRETRIEVABLE")
-        print("     until you run:  python -m app rebuild")
-    print()
-
-    any_failed = False
-    for label, combo, _fallbacks, desc, _cb in triggers:
-        won = listener.assigned.get(label)
-        if won is not None:
-            live = config.describe_combo(*won)
-            note = "" if won == combo else f"  (fell back from {config.describe_combo(*combo)})"
-            print(f"  {live:<22} {desc}{note}")
-        else:
-            any_failed = True
-            print(f"  {config.describe_combo(*combo):<22} {desc}   "
-                 "! NOT REGISTERED -- every candidate combo is already owned "
-                 "by another app; keystrokes reach IT instead")
-    print("  Ctrl+C here            quit\n")
-    if any_failed:
-        print("  Set PERCH_HOTKEY_SELECTION / _SCREENSHOT / _PLAIN to a different combo, "
-             "e.g. PERCH_HOTKEY_SELECTION=\"ctrl+alt+shift+j\", and restart.\n")
-
-    # ONE root, ONE mainloop, for the life of the process.
-    #
-    # The old loop called Panel.show(), which ran its own mainloop() and
-    # blocked here until that panel closed -- so a hotkey pressed while a
-    # panel was open could not be serviced at all. It sat in the queue, and
-    # the whole backlog then fired at once on dismissal. Now the root's loop
-    # always runs and drains the queue on a timer, so a trigger is picked up
-    # within one poll interval whether or not a panel is already up.
-    root = tk.Tk()
-    root.withdraw()
-
-    state: dict[str, Panel | None] = {"panel": None}
-
-    def poll() -> None:
-        try:
-            kind = _requests.get_nowait()
-        except queue.Empty:
-            root.after(POLL_MS, poll)
-            return
-
-        # Coalesce a burst. Holding the chord, or pressing it repeatedly while
-        # nothing appeared, should summon ONE panel -- not a queue of them.
-        dropped = 0
-        while True:
-            try:
-                _requests.get_nowait()
-                dropped += 1
-            except queue.Empty:
-                break
-        if dropped:
-            print(f"[trigger] coalesced {dropped} repeated press(es)")
-
-        try:
-            previous = state["panel"]
-            if previous is not None and previous.alive:
-                previous.close()      # a new trigger replaces the old panel
-            state["panel"] = _handle(pipeline, kind, root)
-        except Exception as exc:                           # noqa: BLE001
-            print(f"[error] {kind}: {exc}")
-        root.after(POLL_MS, poll)
-
-    root.after(POLL_MS, poll)
-    try:
-        root.mainloop()
-    except KeyboardInterrupt:
-        print("\nbye")
-    finally:
-        listener.stop()
-
-
-def _handle(pipeline: Pipeline, kind: str, root: "tk.Tk") -> "Panel | None":
-    # Snapshot the host BEFORE any of our own UI exists, or GetForegroundWindow
-    # returns us. See PERCH_OS_PRIMER.md §1.1.
-    host = winapi.foreground_window()
-
-    started = time.perf_counter()
-
-    if kind == "selection":
-        sel = capture.capture_selection(host)
-        panel = Panel(pipeline, sel.text, sel.method, host, master=root)
-        print(f"[trigger] selection  host={host.title[:40]!r} "
-              f"method={sel.method} chars={len(sel.text)} "
-              f"({(time.perf_counter() - started) * 1000:.0f} ms to panel)")
-
-    elif kind == "screenshot":
-        shot = screenshot.grab_region(config.CAPTURES, master=root)
-        if shot is None:
-            print("[trigger] screenshot cancelled")
-            return None
-        note = f"(screenshot: {shot.width}x{shot.height}px)"
-        # The PATH goes to the panel now, not just a description of it. The
-        # picture used to be captured, saved, and then represented to the
-        # model as a filename it had no way to open.
-        panel = Panel(pipeline, note, "screenshot", host, master=root,
-                      image_path=str(shot.path))
-        print(f"[trigger] screenshot {shot.width}x{shot.height} -> {shot.path.name}")
-
-    else:
-        panel = Panel(pipeline, "", "none", host, master=root)
-        print(f"[trigger] plain      ({(time.perf_counter() - started) * 1000:.0f} ms to panel)")
-
-    panel.show()
-    return panel
+    from .ui.shell import Shell, acquire_single_instance
+    if not acquire_single_instance():
+        print("PERCH is already running -- look for the bird in the system tray.")
+        return
+    Shell().run(open_on_start=open_on_start)
 
 
 # ------------------------------------------------------------- subcommands
@@ -321,7 +178,9 @@ def cmd_import(argv: list[str]) -> None:
             return
 
     # --- extract ---------------------------------------------------------
-    model = registry.select(private=False)
+    # A Health or Personal import is private by class: its transcripts must
+    # never reach a cloud model, even when one is configured.
+    model = registry.select(private=mc.is_private_class(cls_name))
     print(f"\nextracting {cls_name} with {model.label()}")
 
     def progress(n: int, total: int, title: str) -> None:
@@ -469,6 +328,8 @@ def main() -> None:
     argv = sys.argv[1:]
     if not argv:
         return run_agent()
+    if argv[0] == "open":
+        return run_agent(open_on_start=True)
     cmd, rest = argv[0], argv[1:]
     if cmd == "seed":
         from .seed import seed

@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+APP_VERSION = "0.7.0"
+
 # ---------------------------------------------------------------------- paths
 
 ROOT = Path(os.environ.get("PERCH_HOME", Path.home() / ".perch"))

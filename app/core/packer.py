@@ -44,6 +44,9 @@ class Packed:
     question: str = ""
     sel_block: str = ""
     hist_block: str = ""
+    window: int = 0                 # the context window this was packed for
+    tool_tokens: int = 0            # charged by tool results during the loop
+    turn_tokens: int = 0            # charged by the model's own working turns
 
     @property
     def headroom(self) -> int:
@@ -64,14 +67,45 @@ class Packed:
         return (f"{mem_block}{self.sel_block}{self.hist_block}"
                 f"QUESTION:\n{self.question}\n\nANSWER:")
 
-    def charge(self, text: str) -> None:
+    def charge(self, text: str, kind: str = "tool") -> None:
         """Account for something added to the conversation after packing.
 
         Tool results and the model's own intermediate turns occupy the same
         context window as memory does. Not charging them is how a budget that
         looks respected on paper overflows in practice.
         """
-        self.used += _tokens(text)
+        cost = _tokens(text)
+        self.used += cost
+        if kind == "turn":
+            self.turn_tokens += cost
+        else:
+            self.tool_tokens += cost
+
+    def ledger(self) -> dict:
+        """Where the context window went, segment by segment.
+
+        This is what the app draws as the context bar: Contribution 1 made
+        visible rather than asserted. Memory is itemised, so an item a tool
+        result evicted can be seen leaving.
+        """
+        segs = [{"kind": "system", "label": "instructions", "tokens": _tokens(self.system)}]
+        if self.sel_block:
+            segs.append({"kind": "selection", "label": "your selection",
+                         "tokens": _tokens(self.sel_block)})
+        if self.hist_block:
+            segs.append({"kind": "history", "label": "this conversation",
+                         "tokens": _tokens(self.hist_block)})
+        for s in self.included:
+            segs.append({"kind": "memory", "label": s.item.title, "cls": s.item.cls,
+                         "tokens": _tokens(s.item.rendered()) + 2})
+        segs.append({"kind": "question", "label": "your question",
+                     "tokens": _tokens(f"QUESTION:\n{self.question}\n\nANSWER:")})
+        if self.tool_tokens:
+            segs.append({"kind": "tools", "label": "tool results", "tokens": self.tool_tokens})
+        if self.turn_tokens:
+            segs.append({"kind": "turns", "label": "model working", "tokens": self.turn_tokens})
+        return {"budget": self.budget, "window": self.window,
+                "used": sum(seg["tokens"] for seg in segs), "segments": segs}
 
     def make_room(self, need: int) -> list[Scored]:
         """Evict the lowest-ranked memory until `need` tokens are free.
@@ -227,7 +261,8 @@ def pack(question: str, selection: str, admitted: list[Scored],
 
     packed = Packed(system=system, prompt="", included=included,
                     evicted=evicted, budget=budget, used=used,
-                    question=question, sel_block=sel_block, hist_block=hist_block)
+                    question=question, sel_block=sel_block, hist_block=hist_block,
+                    window=context_window)
     # Rendered through the same path an eviction uses, so the two can never
     # drift into producing differently-shaped prompts.
     packed.prompt = packed._render()

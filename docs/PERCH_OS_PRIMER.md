@@ -396,7 +396,7 @@ because nothing is wrong with them.
 | 2 | `os_layer/hotkey.py` | `RegisterHotKey`, the message pump, clean shutdown — §1.2 |
 | 3 | `os_layer/capture.py` | both selection paths and the sentinel trick — §2 |
 | 4 | `os_layer/inject.py` | focus restore, paste, clipboard restoration, refusal on failure — §4 |
-| 5 | `ui/panel.py` | placement arithmetic and non-activating presentation — §3 |
+| 5 | `ui/shell.py` | placement arithmetic, DPI-correct `SetWindowPos`, foreground handling, the frozen-frame region picker — §3 |
 | 6 | `core/pipeline.py` | the whole request path in one file — §5.2 |
 
 **Then run it, and watch the console.** Every trigger prints the host window, the capture method, the

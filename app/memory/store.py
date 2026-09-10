@@ -269,6 +269,58 @@ class MemoryStore:
                 best = (item_id, sim)
         return best
 
+    # ------------------------------------------------------------ browse/edit
+
+    def list_items(self, cls_name: str | None = None) -> list[MemoryItem]:
+        """Every item, read from its file -- the files are the truth, the index
+        only says where they are."""
+        with self._lock:
+            if cls_name:
+                rows = self.db.execute(
+                    "SELECT path FROM items WHERE class=? ORDER BY updated DESC",
+                    (cls_name,)).fetchall()
+            else:
+                rows = self.db.execute(
+                    "SELECT path FROM items ORDER BY class, updated DESC").fetchall()
+        out: list[MemoryItem] = []
+        for (path,) in rows:
+            p = Path(path)
+            if p.exists():
+                item = MemoryItem.from_markdown(p.read_text(encoding="utf-8"))
+                if item:
+                    out.append(item)
+        return out
+
+    def path_of(self, item_id: str) -> Path | None:
+        with self._lock:
+            row = self.db.execute("SELECT path FROM items WHERE id=?", (item_id,)).fetchone()
+        return Path(row[0]) if row else None
+
+    def update(self, item: MemoryItem) -> MemoryItem:
+        """Save an edited item in place.
+
+        Never merges. add() merges near-duplicates because a restated fact
+        should not accumulate; an explicit edit is the user overriding the
+        store, and folding it into some other item would be the store
+        overruling the user. If the class changed the file moves with it, and
+        sensitivity follows the new class -- the class IS the privacy
+        boundary, so an item cannot keep "normal" sensitivity after being
+        moved into Health.
+        """
+        import datetime as _dt
+        cls = classes.get(item.cls)
+        if cls is None:
+            raise ValueError(f"unknown class {item.cls!r}")
+        item.sensitivity = "private" if cls.private else "normal"
+        item.updated = _dt.date.today().isoformat()
+        vector = embed.embed(item.indexed_text)
+        with self._lock:
+            row = self.db.execute("SELECT path FROM items WHERE id=?", (item.id,)).fetchone()
+            if row and Path(row[0]) != item.path_in(self.root):
+                Path(row[0]).unlink(missing_ok=True)
+            self._write(item, vector)
+        return item
+
     # ---------------------------------------------------------------- dedupe
 
     def find_duplicates(self, threshold: float = DUPLICATE_AT) -> list[tuple[str, list[str]]]:

@@ -175,6 +175,20 @@ def doc_parse(path: str = "") -> str:
     return p.read_text(encoding="utf-8", errors="replace")[:8000]
 
 
+@tool("ocr_image", "Read the text in an image file (png or jpg) with on-device "
+      "Windows OCR. Nothing leaves the machine.",
+      {"path": _s("absolute path to the image")})
+def ocr_image(path: str = "") -> str:
+    p = Path(path)
+    if not _allowed(p):
+        return "refused: outside the allowed roots"
+    if not p.is_file():
+        return "not a file"
+    from ..os_layer import ocr
+    result = ocr.read_image(p)
+    return result.text if result.ok else f"(no text read: {result.note})"
+
+
 # --------------------------------------------------------------------- compute
 
 @tool("run_python", "Run a short Python snippet for arithmetic, dates or data "

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PERCH</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="compact" data-view="ask">
+<div id="app">
+  <header id="titlebar" class="titlebar pywebview-drag-region">
+    <div class="brand pywebview-drag-region">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path class="mark-branch" d="M4 26h24"/>
+        <path class="mark-bird" d="M8.2 23.6 4.6 20.4l5.1.6c1-4.9 4.9-8.4 9.8-8.4 1.9 0 3.6.6 4.9 1.7l3.2-.4-2.1 2.6c.3.7.5 1.5.5 2.4 0 3.2-2.6 5.4-6.3 5.4H10z"/>
+        <circle class="mark-eye" cx="22.4" cy="16.9" r="1.05"/>
+      </svg>
+      <span class="wordmark">PERCH</span>
+    </div>
+    <div class="tb-actions">
+      <button id="routeBtn" class="pill route" type="button"></button>
+      <button id="privateBtn" class="pill privacy" type="button" aria-pressed="false"></button>
+      <button id="modeBtn" class="icon-btn" type="button"></button>
+      <button id="closeBtn" class="icon-btn close" type="button" title="Hide (Esc)"></button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <div class="shell">
+    <nav id="sidebar" class="sidebar" aria-label="Sections">
+      <div id="navList" class="nav"></div>
+      <div id="sideStatus" class="side-status"></div>
+    </nav>
+
+    <main id="views" class="views">
+      <section id="view-ask" class="view" data-view="ask">
+        <div id="source" class="source" hidden></div>
+        <div id="thread" class="thread" aria-live="polite"></div>
+        <div id="whyDrawer" class="why-drawer" hidden></div>
+        <div class="dock">
+          <div id="rail" class="rail" hidden></div>
+          <button id="why" class="why" type="button" hidden></button>
+          <form id="composer" class="composer" autocomplete="off">
+            <textarea id="prompt" rows="1" spellcheck="true" placeholder="Ask anything"></textarea>
+            <button id="sendBtn" class="send" type="submit" title="Ask (Enter)"></button>
+          </form>
+          <div id="actions" class="actions"></div>
+        </div>
+      </section>
+      <section id="view-sessions" class="view" data-view="sessions"></section>
+      <section id="view-memory" class="view" data-view="memory"></section>
+      <section id="view-import" class="view" data-view="import"></section>
+      <section id="view-eval" class="view" data-view="eval"></section>
+      <section id="view-settings" class="view" data-view="settings"></section>
+    </main>
+
+    <aside id="inspector" class="inspector" aria-label="How this answer was built"></aside>
+  </div>
+
+  <div id="grip" class="grip" title="Resize"></div>
+  <div id="modal" class="modal" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+</div>
+<script src="markdown.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

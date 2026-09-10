@@ -821,8 +821,8 @@ def test_charging_without_a_ledger_still_works():
 # ----------------------------------------------------- ★ Phase 3: route choice
 
 def test_the_three_routes_are_the_ones_the_architecture_defines():
-    from app.ui import panel as panelmod
-    assert panelmod.ROUTES == ("auto", "local", "cloud")
+    from app.ui import bridge
+    assert bridge.ROUTES == ("auto", "local", "cloud")
 
 
 def test_prefer_route_actually_selects(monkeypatch):
@@ -883,16 +883,17 @@ def test_all_seven_experiments_are_always_reported():
     assert names == {"e1", "e2", "e3", "e4", "e5", "e6", "e7"}
 
 
-def test_the_external_benchmarks_are_marked_not_run_with_a_reason():
-    """E1 and E3 need datasets not vendored here. They must never look like
-    passes, and E1 must not let OP-Bench's number be read as ours."""
+def test_the_external_benchmarks_are_marked_not_run_with_a_reason(tmp_path, monkeypatch):
+    """E3 needs a dataset not vendored here, and E1 is too slow for the
+    default pass until it has been run once. Neither may look like a pass."""
+    from app.eval import e1_overpersonalisation as e1mod
     from app.eval import harness
-    for result in (harness.e1_over_personalisation(), harness.e3_retrieval_quality()):
+    monkeypatch.setattr(e1mod, "RECORDS", tmp_path / "none")
+    for result in (e1mod.last_result(), harness.e3_retrieval_quality()):
         assert not result.ran
         assert result.reason.strip(), f"{result.name} gives no reason"
         assert "NOT RUN" in result.render()
-    e1 = harness.e1_over_personalisation()
-    assert "not ours of PERCH" in e1.reason
+    assert "python -m app eval e1" in e1mod.last_result().reason
 
 
 def test_uia_coverage_says_why_it_cannot_be_simulated():
@@ -902,9 +903,11 @@ def test_uia_coverage_says_why_it_cannot_be_simulated():
     assert "mock" in e7.reason, "the point is that mocking it measures the mock"
 
 
-def test_the_report_names_what_did_not_run():
+def test_the_report_names_what_did_not_run(tmp_path, monkeypatch):
+    from app.eval import e1_overpersonalisation as e1mod
     from app.eval import harness
-    text = harness.report([harness.e1_over_personalisation(),
+    monkeypatch.setattr(e1mod, "RECORDS", tmp_path / "none")
+    text = harness.report([e1mod.last_result(),
                            harness.e3_retrieval_quality(),
                            harness.e7_uia_coverage()])
     assert "0 of 3 experiments ran" in text
@@ -1433,17 +1436,325 @@ def test_history_reaches_the_prompt():
 
 
 def test_history_is_capped_so_chat_cannot_starve_memory():
-    from app.ui import panel as panelmod
-    assert 0 < panelmod.MAX_HISTORY_TURNS <= 20
+    from app.ui import bridge
+    assert 0 < bridge.MAX_HISTORY_TURNS <= 20
 
 
-def test_the_panel_records_both_halves_of_an_exchange():
-    """Recorded before rendering, so a display bug cannot cost the user their
-    conversation."""
-    import inspect
-    from app.ui.panel import Panel
-    source = inspect.getsource(Panel._show)
-    assert 'self.history.append(("user"' in source
-    assert 'self.history.append(("assistant"' in source
-    assert source.index("self.history.append") < source.index("_render_chips"), \
-        "history must be recorded before anything that can raise"
+def test_the_panel_records_both_halves_of_an_exchange(tmp_path, monkeypatch):
+    """Recorded in the worker, before the page is told, so a display bug
+    cannot cost the user their conversation."""
+    from types import SimpleNamespace
+    from app import settings as settings_mod
+    from app.memory.sessions import SessionStore
+    from app.ui import bridge
+    monkeypatch.setattr(settings_mod, "load", lambda: dict(settings_mod.DEFAULTS))
+    api = bridge.Api(pipeline=SimpleNamespace(store=None),
+                     sessions=SessionStore(root=tmp_path))
+    trace = SimpleNamespace(private=False, model="m", abstained=False, admitted=[])
+    api._record("draft an email", SimpleNamespace(answer="Here is a draft", trace=trace))
+    assert api._session.history() == [("user", "draft an email"),
+                                       ("assistant", "Here is a draft")]
+
+
+# ------------------------------------------------------- ★ the app: sessions
+
+def test_an_opened_and_dismissed_panel_is_not_a_conversation(tmp_path):
+    from app.memory.sessions import Session, SessionStore
+    ss = SessionStore(root=tmp_path)
+    ss.save(Session())
+    assert ss.list() == []
+
+
+def test_sessions_are_capped_oldest_first(tmp_path):
+    import os as _os
+    from app.memory.sessions import Session, SessionStore
+    ss = SessionStore(root=tmp_path, cap=3)
+    ids = []
+    for i in range(5):
+        s = Session()
+        s.add("user", f"question {i}")
+        ss.save(s)
+        _os.utime(ss._path(s.id), (1_000_000 + i, 1_000_000 + i))
+        ids.append(s.id)
+    ss.save(ss.get(ids[-1]))          # any save enforces the cap
+    kept = {s["id"] for s in ss.list()}
+    assert len(kept) == 3 and ids[0] not in kept and ids[1] not in kept
+
+
+def test_session_search_reads_the_turns_not_just_the_title(tmp_path):
+    from app.memory.sessions import Session, SessionStore
+    ss = SessionStore(root=tmp_path)
+    s = Session(source_app="Word")
+    s.add("user", "tidy this paragraph")
+    s.add("assistant", "Here it is, with the passive voice removed.")
+    ss.save(s)
+    assert [x["id"] for x in ss.list("passive voice")] == [s.id]
+    assert ss.list("nothing like this") == []
+
+
+def test_a_session_file_from_a_newer_version_still_opens(tmp_path):
+    from app.memory.sessions import Session
+    data = Session().to_dict()
+    data["field_from_the_future"] = 1
+    assert Session.from_dict(data).id == data["id"]
+
+
+def _api(tmp_path, monkeypatch, **overrides):
+    from types import SimpleNamespace
+    from app import settings as settings_mod
+    from app.memory.sessions import SessionStore
+    from app.ui import bridge
+    values = {**settings_mod.DEFAULTS, **overrides}
+    monkeypatch.setattr(settings_mod, "load", lambda: dict(values))
+    return bridge.Api(pipeline=SimpleNamespace(store=None),
+                      sessions=SessionStore(root=tmp_path))
+
+
+def _response(answer="ok", private=False):
+    from types import SimpleNamespace
+    return SimpleNamespace(answer=answer, trace=SimpleNamespace(
+        private=private, model="m", abstained=False, admitted=[]))
+
+
+def test_a_private_conversation_is_not_kept_by_default(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    api._record("about my prescription", _response(private=True))
+    assert api._sessions.list() == []
+
+
+def test_a_conversation_that_turns_private_is_removed(tmp_path, monkeypatch):
+    """Written while public, then a private turn: the file must not outlive it."""
+    api = _api(tmp_path, monkeypatch)
+    api._record("hello", _response())
+    assert len(api._sessions.list()) == 1
+    api._record("now about my health", _response(private=True))
+    assert api._sessions.list() == []
+
+
+def test_private_conversations_are_kept_when_asked(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch, keep_private_sessions=True)
+    api._record("about my prescription", _response(private=True))
+    assert len(api._sessions.list()) == 1
+
+
+# --------------------------------------------------------- ★ the app: bridge
+
+def test_poll_coalesces_a_burst_of_tokens(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    for t in ("Hel", "lo", " there"):
+        api._emit("token", rid="r1", text=t)
+    api._emit("done", rid="r1", answer="Hello there")
+    events = api.poll()
+    assert [e["type"] for e in events] == ["token", "done"]
+    assert events[0]["text"] == "Hello there"
+    assert api.poll() == []
+
+
+def test_the_bridge_exposes_no_public_state(tmp_path, monkeypatch):
+    """pywebview hands every public attribute to the page."""
+    api = _api(tmp_path, monkeypatch)
+    assert [k for k in vars(api) if not k.startswith("_")] == []
+
+
+def _waiting_confirm(api):
+    import threading
+    import time
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault(
+        "ok", api._confirm("r1", "file_write", {"path": "x.txt", "content": "y"})))
+    t.start()
+    for _ in range(200):
+        if api._confirms:
+            break
+        time.sleep(0.01)
+    return t, out
+
+
+def test_hiding_the_panel_refuses_a_pending_tool(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    t, out = _waiting_confirm(api)
+    api.hide()
+    t.join(2)
+    assert out["ok"] is False
+
+
+def test_an_explicit_yes_is_the_only_yes(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    t, out = _waiting_confirm(api)
+    cid = next(iter(api._confirms))
+    assert api.confirm("not-a-real-id", True) is False
+    assert api.confirm(cid, True) is True
+    t.join(2)
+    assert out["ok"] is True
+
+
+def test_silence_is_a_no(tmp_path, monkeypatch):
+    from app.ui import bridge
+    monkeypatch.setattr(bridge, "CONFIRM_TIMEOUT_S", 0.05)
+    api = _api(tmp_path, monkeypatch)
+    assert api._confirm("r1", "file_write", {"path": "x.txt", "content": "y"}) is False
+    assert "confirm_timeout" in [e["type"] for e in api.poll()]
+
+
+def test_ask_refuses_empty_and_overlapping_requests(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    assert api.ask("   ") == {"ok": False, "error": "empty"}
+    api._busy = True
+    assert api.ask("hello") == {"ok": False, "error": "busy"}
+
+
+def test_ask_carries_capped_history_into_the_request(tmp_path, monkeypatch):
+    import time
+    from types import SimpleNamespace
+    from app.ui import bridge
+    api = _api(tmp_path, monkeypatch)
+    seen = {}
+    api._pipeline = SimpleNamespace(store=None, run=lambda req, **kw: (
+        seen.setdefault("req", req), _response("fine"))[1])
+    api._open({"selection": "some text", "source_app": "WINWORD.EXE"})
+    for i in range(bridge.MAX_HISTORY_TURNS + 3):
+        api._record(f"q{i}", _response(f"a{i}"))
+    assert api.ask("and again")["ok"]
+    for _ in range(200):
+        if not api._busy:
+            break
+        time.sleep(0.01)
+    req = seen["req"]
+    assert req.selection == "some text"
+    assert len(req.history) == bridge.MAX_HISTORY_TURNS * 2
+    assert req.history[-1] == ("assistant", f"a{bridge.MAX_HISTORY_TURNS + 2}")
+
+
+def test_import_commit_with_nothing_proposed_writes_nothing(tmp_path, monkeypatch):
+    api = _api(tmp_path, monkeypatch)
+    assert api.import_commit([{"index": 0, "keep": True}])["ok"] is False
+
+
+# ------------------------------------------------ ★ the app: memory editing
+
+def test_editing_a_memory_into_another_class_moves_its_file(tmp_path):
+    from app.memory.store import MemoryStore
+    s = MemoryStore(root=tmp_path / "memory", db=tmp_path / "index.sqlite3")
+    item, _ = s.add(MemoryItem(cls="project", title="Blood test on Friday",
+                               body="Fasting from 10pm.", source_kind="manual"))
+    before = s.path_of(item.id)
+    assert "project" in str(before)
+    item.cls = "health"
+    s.update(item)
+    after = s.path_of(item.id)
+    assert "health" in str(after) and after.exists() and not before.exists()
+    assert [i.id for i in s.list_items("health")] == [item.id]
+    assert s.list_items("project") == []
+    assert s.get(item.id).sensitivity == "private", "sensitivity follows the class"
+
+
+def test_review_commit_writes_only_what_was_kept(tmp_path):
+    from app.ingest import review
+    from app.ingest.extract import Proposal
+    from app.memory.store import MemoryStore
+    s = MemoryStore(root=tmp_path / "memory", db=tmp_path / "index.sqlite3")
+    keep = Proposal(item=MemoryItem(cls="career", title="Wants a backend role",
+                                    body="Python, applied ML.", source_kind="import"),
+                    accepted=True)
+    drop = Proposal(item=MemoryItem(cls="career", title="Once asked about Rust",
+                                    body="One question.", source_kind="import"))
+    summary = review.commit([keep, drop], s)
+    assert summary.accepted == 1 and summary.rejected == 1
+    assert [i.title for i in s.list_items()] == ["Wants a backend role"]
+
+
+def test_the_ledger_accounts_for_the_window():
+    packed = packer.pack("hello", "a selection", [], context_window=8192,
+                         history=[("user", "hi"), ("assistant", "hello")])
+    led = packed.ledger()
+    assert led["window"] == 8192
+    assert 0 < led["used"] <= led["budget"] < led["window"]
+    kinds = {s["kind"] for s in led["segments"]}
+    assert {"system", "question", "history"} <= kinds
+
+
+# ------------------------------------------------------ ★ the app: settings
+
+def test_settings_are_coerced_not_trusted():
+    from app import settings as settings_mod
+    values = settings_mod.save({"default_route": "moon", "session_cap": 1,
+                                "keep_sessions": 0, "not_a_setting": True})
+    assert values["default_route"] in ("auto", "local", "cloud")
+    assert values["session_cap"] == 10
+    assert values["keep_sessions"] is False
+    assert "not_a_setting" not in values
+    settings_mod.save({"keep_sessions": True, "session_cap": 200})
+
+
+def test_an_environment_variable_beats_the_settings_screen(monkeypatch):
+    from app import settings as settings_mod
+    monkeypatch.setenv("PERCH_ROUTE", "local")
+    monkeypatch.setattr(config, "DEFAULT_ROUTE", "local")
+    settings_mod.apply({**settings_mod.DEFAULTS, "default_route": "cloud"})
+    assert config.DEFAULT_ROUTE == "local"
+    assert settings_mod.locked() == {"default_route": "PERCH_ROUTE"}
+
+
+# ----------------------------------------------------------- ★ the app: OCR
+
+def test_ocr_never_raises_on_a_bad_file(tmp_path):
+    from app.os_layer import ocr
+    result = ocr.read_image(str(tmp_path / "missing.png"))
+    assert not result.ok and result.note
+
+
+def test_ocr_reads_rendered_text(tmp_path):
+    from PIL import Image, ImageDraw, ImageFont
+    from app.os_layer import ocr
+    if not ocr.available():
+        pytest.skip("Windows OCR is not available here")
+    try:
+        font = ImageFont.truetype("arial.ttf", 44)
+    except OSError:
+        pytest.skip("no Arial to render with")
+    img = Image.new("RGB", (900, 120), "white")
+    ImageDraw.Draw(img).text((20, 30), "Quarterly budget review", fill="black", font=font)
+    path = tmp_path / "shot.png"
+    img.save(path)
+    result = ocr.read_image(str(path))
+    assert result.ok, result.note
+    assert "budget" in result.text.lower()
+
+
+# ------------------------------------------------------------ ★ E1 helpers
+
+def test_a_leak_is_a_marker_the_question_did_not_bring():
+    from app.eval.e1_overpersonalisation import leaked
+    markers = ["PES", "Pune"]
+    assert leaked("As a PES student in Pune...", "how do I boil an egg?", markers) == ["PES", "Pune"]
+    assert leaked("Pune is lovely in June", "is Pune nice?", markers) == []
+    assert leaked("SPESIFIC", "q", markers) == [], "whole words only"
+
+
+def test_an_unreadable_judgement_is_none_not_a_guess():
+    from app.eval.e1_overpersonalisation import parse_verdict
+    assert parse_verdict('{"verdict": "yes", "why": "..."}') is True
+    assert parse_verdict('Sure. {"verdict": "NO"}') is False
+    assert parse_verdict("I think maybe?") is None
+
+
+def test_the_probe_file_is_complete_and_the_quick_run_is_a_subset():
+    from app.eval import e1_overpersonalisation as e1mod
+    probes = e1mod.load_probes()
+    quick = e1mod.quick_subset(probes)
+    for key in ("irrelevance", "sycophancy", "repetition"):
+        assert 0 < len(quick[key]) <= len(probes[key])
+
+
+def test_one_answer_of_ten_is_not_evidence():
+    """The first live run said SUPPORTS on naive 1/10 vs gated 0/10."""
+    from app.eval.e1_overpersonalisation import verdict_head
+    zero = {"A": 0, "B": 0, "C": 0}
+    assert verdict_head({"A": 0, "B": 1, "C": 0}, zero, {"A": 2, "B": 1, "C": 3}) \
+        .startswith("INCONCLUSIVE")
+    assert verdict_head({"A": 0, "B": 4, "C": 0}, {"A": 0, "B": 2, "C": 0},
+                        {"A": 2, "B": 2, "C": 2}).startswith("SUPPORTS")
+    assert verdict_head({"A": 0, "B": 4, "C": 0}, zero,
+                        {"A": 1, "B": 2, "C": 5}).startswith("INCONCLUSIVE"), \
+        "less leaking bought with more sycophancy is not a win"
+    assert verdict_head({"A": 0, "B": 1, "C": 4}, zero, zero).startswith("CONTRADICTS")

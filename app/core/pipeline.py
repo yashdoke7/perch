@@ -54,6 +54,7 @@ class Trace:
     model: str = ""
     budget: str = ""
     vision: str = ""          # what happened to an attached image, if any
+    ledger: dict = field(default_factory=dict)   # packer.Packed.ledger()
     tools: list[str] = field(default_factory=list)
     ms: int = 0
 
@@ -82,6 +83,30 @@ class Trace:
             out.append(f"tools     {', '.join(self.tools)}")
         out.append(f"elapsed   {self.ms} ms")
         return out
+
+    def to_dict(self) -> dict:
+        """The trace as plain data for the app. Everything the panel shows
+        comes from here, so the UI cannot display a decision the pipeline did
+        not actually make -- including each item's class floor, which is what
+        lets the panel draw "ranking is relative, injection is absolute" as a
+        score bar with the floor marked on it."""
+        def row(s: Scored) -> dict:
+            return {"id": s.item.id, "cls": s.item.cls, "title": s.item.title,
+                    "score": round(float(s.score), 3),
+                    "floor": mc.floor_for(s.item.cls),
+                    "private": mc.is_private_class(s.item.cls),
+                    "reason": s.reason}
+        return {
+            "intent": self.intent, "eligible": list(self.eligible),
+            "candidates": self.candidates,
+            "admitted": [row(s) for s in self.admitted],
+            "dropped": [row(s) for s in self.dropped],
+            "rejected_classes": dict(self.rejected_classes),
+            "abstained": self.abstained, "privacy": self.privacy,
+            "private": self.private, "model": self.model, "budget": self.budget,
+            "vision": self.vision, "tools": list(self.tools), "ms": self.ms,
+            "ledger": self.ledger,
+        }
 
 
 @dataclass
@@ -124,42 +149,7 @@ class Pipeline:
             req.private_toggle, req.source_app, req.source_title, req.source_path
         )
 
-        # --- 2. intent + class routing ---------------------------------------
-        intent = router.resolve(req.question, req.selection, req.source_app, req.source_path)
-        trace.intent = intent.describe()
-        trace.eligible = intent.eligible
-
-        # --- 3. retrieve -> 4. rank -> 5. admit ------------------------------
-        query = f"{req.question}\n{req.selection[:1200]}"
-        qvec = embed.embed(query)
-
-        # Routing is PERMISSIVE, admission is STRICT -- deliberately, because
-        # the two fail differently. A router that wrongly excludes a class fails
-        # SILENTLY: you never learn what you missed. A gate that wrongly drops
-        # an item fails VISIBLY: it abstains and says so. So the strictness
-        # belongs in the gate, and the router widens itself with a cheap
-        # semantic probe over the classes its lexical cues did not reach.
-        eligible = list(intent.eligible)
-        if not intent.transform_only:
-            for cls_name in self._probe(qvec, exclude=eligible):
-                eligible.append(cls_name)
-        trace.eligible = eligible
-        stage("route", ", ".join(eligible))
-
-        candidates = self.store.candidates(eligible, qvec, config.OVERFETCH)
-        trace.candidates = len(candidates)
-
-        ranked = ranker.rank(candidates, req.question, req.selection)
-        stage("rank", f"{len(ranked)} candidates")
-
-        result = admission.admit(ranked)
-
-        trace.admitted = result.admitted
-        trace.dropped = result.dropped
-        trace.rejected_classes = result.classes_rejected
-        trace.abstained = result.abstained
-        stage("gate", "abstained" if result.abstained
-              else f"{len(result.admitted)} in, {len(result.dropped)} out")
+        result = self._gate(req, trace, stage)
 
         # --- 6. the class-driven privacy rule --------------------------------
         # Falls out of the type system for free: if the gate admitted a health
@@ -238,6 +228,7 @@ class Pipeline:
         # Re-read after the loop: evictions during tool use change both.
         trace.admitted = packed.included
         trace.budget = packed.summary()
+        trace.ledger = packed.ledger()
         trace.tools = tool_log
 
         # --- 10. accounting ---------------------------------------------------
@@ -246,6 +237,59 @@ class Pipeline:
 
         trace.ms = int((time.time() - started) * 1000)
         return Response(answer=answer, trace=trace)
+
+    def _gate(self, req: Request, trace: Trace, stage) -> "admission.Admission":
+        """Steps 2-5: route, retrieve, rank, admit. Shared by run() and
+        preview(), so the gate a user previews is the gate that runs."""
+        # --- 2. intent + class routing ---------------------------------------
+        intent = router.resolve(req.question, req.selection, req.source_app, req.source_path)
+        trace.intent = intent.describe()
+        trace.eligible = intent.eligible
+
+        # --- 3. retrieve -> 4. rank -> 5. admit ------------------------------
+        query = f"{req.question}\n{req.selection[:1200]}"
+        qvec = embed.embed(query)
+
+        # Routing is PERMISSIVE, admission is STRICT -- deliberately, because
+        # the two fail differently. A router that wrongly excludes a class fails
+        # SILENTLY: you never learn what you missed. A gate that wrongly drops
+        # an item fails VISIBLY: it abstains and says so. So the strictness
+        # belongs in the gate, and the router widens itself with a cheap
+        # semantic probe over the classes its lexical cues did not reach.
+        eligible = list(intent.eligible)
+        if not intent.transform_only:
+            for cls_name in self._probe(qvec, exclude=eligible):
+                eligible.append(cls_name)
+        trace.eligible = eligible
+        stage("route", ", ".join(eligible))
+
+        candidates = self.store.candidates(eligible, qvec, config.OVERFETCH)
+        trace.candidates = len(candidates)
+
+        ranked = ranker.rank(candidates, req.question, req.selection)
+        stage("rank", f"{len(ranked)} candidates")
+
+        result = admission.admit(ranked)
+
+        trace.admitted = result.admitted
+        trace.dropped = result.dropped
+        trace.rejected_classes = result.classes_rejected
+        trace.abstained = result.abstained
+        stage("gate", "abstained" if result.abstained
+              else f"{len(result.admitted)} in, {len(result.dropped)} out")
+        return result
+
+    def preview(self, question: str, selection: str = "",
+                source_app: str = "") -> Trace:
+        """What the gate WOULD admit for a question, without generating.
+
+        One embedding and no model call, so the app can offer it live as
+        you type -- the auditability claim, usable directly.
+        """
+        trace = Trace()
+        self._gate(Request(question=question, selection=selection,
+                           source_app=source_app), trace, lambda *_a, **_k: None)
+        return trace
 
     def _probe(self, qvec: list[float], exclude: list[str]) -> list[str]:
         """Cheap semantic widening of the eligible set.

@@ -7,7 +7,7 @@ Part X lists seven experiments. Four of them can be run on any machine with
 this repository and nothing else; three cannot, and the harness says so rather
 than leaving a blank the reader fills in optimistically.
 
-    E1  over-personalisation      needs OP-Bench            NOT RUNNABLE HERE
+    E1  over-personalisation      OP-style probe (OP-Bench is unreleased), ~15 min
     E2  budget assembly (C1)      needs nothing             ★ runs
     E3  retrieval quality         needs LongMemEval/LoCoMo  NOT RUNNABLE HERE
     E4  admission gate (C2)       needs a real embedder     runs when one is live
@@ -70,17 +70,6 @@ def unavailable(name: str, title: str, claim: str, reason: str) -> Result:
 
 # --------------------------------------------------------- the external three
 
-def e1_over_personalisation() -> Result:
-    return unavailable(
-        "E1", "Over-personalisation", "the headline claim: memory that knows when to stay quiet",
-        "OP-Bench (arXiv 2601.13722) is not vendored in this repository and is "
-        "not fetched at runtime.\n           1,700 instances over 20 simulated "
-        "users; the baselines are no-memory, naive top-k and ours.\n           "
-        "Until it is run, the 26.2-61.1% figure quoted in Part X is THEIR "
-        "measurement of\n           naive memory systems, not ours of PERCH. "
-        "Do not report it as a PERCH result.")
-
-
 def e3_retrieval_quality() -> Result:
     return unavailable(
         "E3", "Retrieval quality", "competence against published benchmarks -- not a record claim",
@@ -106,9 +95,9 @@ def e7_uia_coverage() -> Result:
 def all_experiments() -> dict:
     """Name -> zero-argument callable. Imported lazily so that one experiment
     failing to import cannot take the whole harness down with it."""
-    from . import e2_budget, e4_admission, e5_privacy, e6_latency
+    from . import e1_overpersonalisation, e2_budget, e4_admission, e5_privacy, e6_latency
     return {
-        "e1": e1_over_personalisation,
+        "e1": e1_overpersonalisation.run,
         "e2": e2_budget.run,
         "e3": e3_retrieval_quality,
         "e4": e4_admission.run,
@@ -120,6 +109,13 @@ def all_experiments() -> dict:
 
 def run(names: list[str] | None = None) -> list[Result]:
     experiments = all_experiments()
+    if not names:
+        # E1 generates and judges ~70 answers, which is ~15 minutes on a local
+        # 3B model -- too slow for the default pass. The default pass shows the
+        # most recent saved E1 run, clearly dated, instead of re-running it or
+        # leaving the row blank.
+        from . import e1_overpersonalisation
+        experiments["e1"] = e1_overpersonalisation.last_result
     wanted = [n.lower() for n in (names or experiments.keys())]
 
     results: list[Result] = []
