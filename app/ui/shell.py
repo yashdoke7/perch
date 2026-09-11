@@ -488,6 +488,20 @@ class Shell:
             return ""
         return str(res[0] if isinstance(res, (list, tuple)) else res)
 
+    def save_file(self, filename: str) -> str:
+        dialog = getattr(getattr(webview, "FileDialog", None), "SAVE", None)
+        if dialog is None:
+            dialog = webview.SAVE_DIALOG
+        try:
+            res = self.window.create_file_dialog(dialog, save_filename=filename,
+                                                 file_types=("Zip archive (*.zip)",))
+        except Exception as exc:                              # noqa: BLE001
+            print(f"[shell] save dialog failed: {exc}")
+            return ""
+        if not res:
+            return ""
+        return str(res[0] if isinstance(res, (list, tuple)) else res)
+
     # ------------------------------------------------------------ placement
 
     def _remember(self) -> bool:

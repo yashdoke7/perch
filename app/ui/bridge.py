@@ -20,10 +20,14 @@ to poll now rather than in 250 ms. If it fails, the next poll catches up.
 
 from __future__ import annotations
 
+import datetime as dt
+import json
 import os
 import queue
 import threading
+import urllib.request
 import uuid
+import zipfile
 from dataclasses import asdict
 from pathlib import Path
 
@@ -587,6 +591,175 @@ class Api:
     def eval_saved(self) -> dict:
         from ..eval import e1_overpersonalisation
         return _result(e1_overpersonalisation.last_result())
+
+    def eval_saved_all(self) -> dict:
+        """The most recent saved run of each slow experiment, dated."""
+        from ..eval import e1_overpersonalisation, e3_local
+        return {"e1": _result(e1_overpersonalisation.last_result()),
+                "e3": _result(e3_local.last_result())}
+
+    # ============================================================ home & setup
+
+    # The only models the page may ask to download. The page is ours, but a
+    # bridge method that pulls ANY name it is given is a download primitive
+    # waiting for a bug; these two are what PERCH is configured to use.
+    def _pullable(self) -> set[str]:
+        return {config.LOCAL_MODEL, config.EMBED_MODEL}
+
+    def _ollama_models(self) -> list[str] | None:
+        """Installed model names, or None when Ollama is not answering."""
+        try:
+            with urllib.request.urlopen(f"{config.OLLAMA_URL}/api/tags", timeout=2) as resp:
+                return [m.get("name", "") for m in json.loads(resp.read().decode()).get("models", [])]
+        except Exception:                                     # noqa: BLE001
+            return None
+
+    def _eval_summaries(self) -> list[dict]:
+        out = []
+        folder = config.ROOT / "eval"
+        for name, title in (("e3", "Retrieval quality"), ("e1", "Over-personalisation")):
+            runs = sorted(folder.glob(f"{name}-*.json")) if folder.exists() else []
+            if not runs:
+                continue
+            try:
+                data = json.loads(runs[-1].read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            out.append({"name": name.upper(), "title": title, "date": data.get("date", ""),
+                        "verdict": data.get("verdict", "")})
+        return out
+
+    def home(self) -> dict:
+        """Everything the Home screen shows: is this machine ready, what is in
+        memory, what happened recently. Each check says how to fix itself."""
+        from ..os_layer import ocr
+        st = self._status()
+        installed = self._ollama_models()
+        up = installed is not None
+
+        def have(name: str) -> bool:
+            return up and (name in installed or f"{name}:latest" in installed)  # type: ignore[operator]
+
+        health = self._store.index_health()
+        keys = self._shell.hotkeys() if self._shell else {}
+        missing_keys = [k for k, v in keys.items() if not v]
+        checks = [
+            {"id": "ollama", "ok": up, "title": "Ollama is running",
+             "detail": "Local models answer on this machine." if up
+             else "Start the Ollama app (or run: ollama serve), then press Re-check."},
+            {"id": "model", "ok": have(config.LOCAL_MODEL), "title": f"Answer model · {config.LOCAL_MODEL}",
+             "detail": "Installed." if have(config.LOCAL_MODEL) else "Not downloaded yet (about 1.9 GB).",
+             "pull": config.LOCAL_MODEL if up and not have(config.LOCAL_MODEL) else ""},
+            {"id": "embed", "ok": have(config.EMBED_MODEL) and st["semantic"],
+             "title": f"Memory search · {config.EMBED_MODEL}",
+             "detail": ("Installed and in use." if have(config.EMBED_MODEL) and st["semantic"]
+                        else "Installed; press Re-check to switch to it." if have(config.EMBED_MODEL)
+                        else "Not downloaded yet (about 270 MB). Without it recall is badly degraded."),
+             "pull": config.EMBED_MODEL if up and not have(config.EMBED_MODEL) else ""},
+            {"id": "index", "ok": not health["stale"], "title": "Memory index is current",
+             "detail": "Every memory can be recalled." if not health["stale"]
+             else f"{health['stale']} memories were indexed by another embedder.",
+             "action": "rebuild" if health["stale"] else ""},
+            {"id": "ocr", "ok": bool(ocr.available()), "title": "Screenshot reading",
+             "detail": f"Windows OCR ({ocr.available()})" if ocr.available()
+             else "Windows OCR is unavailable: add an OCR language in Windows Settings."},
+            {"id": "hotkeys", "ok": None if not keys else not missing_keys, "title": "Global shortcuts",
+             "detail": ("Not running inside the app." if not keys
+                        else "All registered." if not missing_keys
+                        else f"Taken by another app: {', '.join(missing_keys)}.")},
+            {"id": "memory", "ok": st["memory"] > 0, "title": "Memory to work with",
+             "detail": f"{st['memory']} memories on this machine." if st["memory"]
+             else "Import your AI history or write a few things about yourself.",
+             "action": "" if st["memory"] else "import"},
+        ]
+        return {"status": st, "checks": checks, "counts": self._store.counts(),
+                "recent": self._sessions.list("", limit=5), "evals": self._eval_summaries(),
+                "hotkeys": keys, "version": config.APP_VERSION}
+
+    def recheck(self) -> dict:
+        """Forget cached probes, so a model started or pulled since launch is
+        picked up without restarting -- and re-embed if the embedder changed."""
+        registry.forget_probe()
+        embed._backend = None                                  # noqa: SLF001
+        self._store._check_embedder()                          # noqa: SLF001
+        return self.home()
+
+    def ollama_pull(self, model: str) -> dict:
+        if model not in self._pullable():
+            return {"ok": False, "error": "PERCH only downloads the models it is configured to use."}
+        job = uuid.uuid4().hex[:8]
+
+        def work() -> None:
+            req = urllib.request.Request(f"{config.OLLAMA_URL}/api/pull",
+                                         data=json.dumps({"model": model, "stream": True}).encode(),
+                                         method="POST")
+            req.add_header("Content-Type", "application/json")
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    last = 0.0
+                    for raw in resp:
+                        line = json.loads(raw.decode() or "{}")
+                        if line.get("error"):
+                            raise RuntimeError(line["error"])
+                        total, done = line.get("total") or 0, line.get("completed") or 0
+                        now = dt.datetime.now().timestamp()
+                        if now - last > 0.25 or line.get("status") == "success":
+                            last = now
+                            self._emit("job", job=job, kind="pull", state="progress", model=model,
+                                       label=line.get("status", ""), n=done, total=total)
+                            self._nudge()
+                registry.forget_probe()
+                embed._backend = None                          # noqa: SLF001
+                self._emit("job", job=job, kind="pull", state="done", model=model)
+            except Exception as exc:                          # noqa: BLE001
+                self._emit("job", job=job, kind="pull", state="error", model=model,
+                           message=f"{type(exc).__name__}: {exc}")
+            self._nudge()
+
+        threading.Thread(target=work, daemon=True, name="perch-pull").start()
+        return {"ok": True, "job": job}
+
+    # ============================================================ memory tools
+
+    def suggest_class(self, text: str) -> str:
+        """Where a memory saved from a conversation probably belongs. A
+        suggestion only -- the editor shows it and the user decides."""
+        from ..core import router
+        text = (text or "")[:4000]
+        for cls_name in router.resolve(text).eligible:
+            if cls_name != "identity":
+                return cls_name
+        if not text.strip() or not self._store.count():
+            return "project"
+        qvec = embed.embed(text)
+        best = max(((c, hits[0][1]) for c in mc.ORDER
+                    for hits in [self._store.candidates([c], qvec, 1)] if hits),
+                   key=lambda kv: kv[1], default=("project", 0.0))
+        return best[0]
+
+    def memory_export(self) -> dict:
+        """Every memory file in one zip -- the portability §3.3 promises."""
+        name = f"perch-memory-{dt.date.today().isoformat()}.zip"
+        path = self._shell.save_file(name) if self._shell is not None else ""
+        if not path:
+            return {"ok": False, "cancelled": True}
+        root = Path(self._store.root)
+        n = 0
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            for p in sorted(root.rglob("*.md")):
+                z.write(p, p.relative_to(root).as_posix())
+                n += 1
+        return {"ok": True, "path": path, "count": n}
+
+    def search_all(self, query: str) -> dict:
+        """For the command palette: memories and conversations matching."""
+        q = (query or "").strip().lower()
+        if not q:
+            return {"memories": [], "sessions": []}
+        mems = [_item(i) for i in self._store.list_items()
+                if q in i.title.lower() or q in i.body.lower()
+                or any(q in t.lower() for t in i.tags)][:6]
+        return {"memories": mems, "sessions": self._sessions.list(q, limit=5)}
 
     # ============================================================ settings
 

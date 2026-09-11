@@ -80,7 +80,7 @@
 
   let jobN = 0;
   window.pywebview = { api: {
-    boot: async () => ({ version: "0.7.0", routes: ["auto", "local", "cloud"], classes,
+    boot: async () => ({ version: "0.8.0", routes: ["auto", "local", "cloud"], classes,
       settings: { default_route: "auto", private_by_default: false, keep_sessions: true, keep_private_sessions: false, session_cap: 200, launch_at_login: false, remember_position: true },
       status: status(), context: params.get("ctx") === "empty" ? { kind: "app" } : ctxs[params.get("ctx") || "selection"],
       hotkeys: { selection: "Ctrl+Alt+J", screenshot: "Ctrl+Alt+K", plain: "Ctrl+Alt+G" }, ocr: "en-US" }),
@@ -127,8 +127,46 @@
     settings_get: async () => ({ values: { default_route: "auto", private_by_default: false, keep_sessions: true, keep_private_sessions: false, session_cap: 200, launch_at_login: false, remember_position: true }, locked: {}, login: false,
       rules: { apps: ["keepass*", "bitwarden*", "1password*"], titles: ["*confidential*", "*[private]*"], folders: [] },
       models: [{ key: "local", id: "qwen2.5:3b", local: true, window: 8192, tools: true, vision: false, stub: false }],
-      hotkeys: { selection: "Ctrl+Alt+J", screenshot: "Ctrl+Alt+K", plain: "Ctrl+Alt+G" }, paths: { home: "C:\\Users\\you\\.perch" }, ocr: "en-US", embeddings: "ollama", version: "0.7.0" }),
+      hotkeys: { selection: "Ctrl+Alt+J", screenshot: "Ctrl+Alt+K", plain: "Ctrl+Alt+G" }, paths: { home: "C:\\Users\\you\\.perch" }, ocr: "en-US", embeddings: "ollama", version: "0.8.0" }),
     settings_save: async (c) => ({ ok: true, values: Object.assign({ default_route: "auto", private_by_default: false, keep_sessions: true, keep_private_sessions: false, session_cap: 200, launch_at_login: false, remember_position: true }, c), login: !!c.launch_at_login }),
     rules_save: async (r) => ({ ok: true, rules: r }),
+    home: async () => ({
+      status: status(), counts: counts(), version: "0.8.0",
+      hotkeys: { selection: "Ctrl+Alt+J", screenshot: "Ctrl+Alt+K", plain: "Ctrl+Alt+G" },
+      recent: sessions,
+      evals: [
+        { name: "E3", title: "Retrieval quality", date: "2026-09-10T22:13:00", verdict: "SUPPORTS the claim on the held-out persona: shipped F1 0.86 vs naive top-k 0.49 and global threshold 0.79; abstention 1.00; private leaks 0 (naive 24). Lifecycle all passed." },
+        { name: "E1", title: "Over-personalisation", date: "2026-09-10T21:42:50", verdict: "INCONCLUSIVE on this probe (naive memory barely over-personalised here, so the probe cannot tell the configs apart)." },
+      ],
+      checks: [
+        { id: "ollama", ok: true, title: "Ollama is running", detail: "Local models answer on this machine." },
+        { id: "model", ok: true, title: "Answer model · qwen2.5:3b", detail: "Installed." },
+        { id: "embed", ok: params.get("setup") !== "todo", title: "Memory search · nomic-embed-text", detail: params.get("setup") === "todo" ? "Not downloaded yet (about 270 MB). Without it recall is badly degraded." : "Installed and in use.", pull: params.get("setup") === "todo" ? "nomic-embed-text" : "" },
+        { id: "index", ok: true, title: "Memory index is current", detail: "Every memory can be recalled." },
+        { id: "ocr", ok: true, title: "Screenshot reading", detail: "Windows OCR (en-US)" },
+        { id: "hotkeys", ok: true, title: "Global shortcuts", detail: "All registered." },
+        { id: "memory", ok: true, title: "Memory to work with", detail: `${memory.length} memories on this machine.` },
+      ],
+    }),
+    recheck: async () => window.pywebview.api.home(),
+    ollama_pull: async (model) => {
+      const job = "p" + ++jobN;
+      (async () => {
+        const total = 274000000;
+        for (let n = 1; n <= 10; n++) { await sleep(300); events.push({ type: "job", job, kind: "pull", state: "progress", model, label: "pulling layers", n: (total * n) / 10, total }); }
+        events.push({ type: "job", job, kind: "pull", state: "done", model });
+      })();
+      return { ok: true, job };
+    },
+    suggest_class: async (t) => (/doctor|medic|inhaler/i.test(t) ? "health" : /resume|interview/i.test(t) ? "career" : "project"),
+    memory_export: async () => ({ ok: true, path: "C:\\Users\\you\\Documents\\perch-memory.zip", count: memory.length }),
+    search_all: async (q) => ({
+      memories: memory.filter((m) => (m.title + m.body).toLowerCase().includes(q.toLowerCase())).slice(0, 6),
+      sessions: sessions.filter((s) => s.title.toLowerCase().includes(q.toLowerCase())),
+    }),
+    eval_saved_all: async () => ({
+      e1: { name: "E1", title: "Over-personalisation", ran: true, reason: "", verdict: "INCONCLUSIVE on this probe.", lines: ["(saved run)"] },
+      e3: { name: "E3", title: "Retrieval quality", ran: true, reason: "", verdict: "SUPPORTS the claim on the held-out persona: shipped F1 0.86 vs 0.79 and 0.49; 0 private leaks.", lines: ["(saved run)"] },
+    }),
   } };
 })();

@@ -1,0 +1,56 @@
+# Build PERCH on GitHub's Windows machines.
+#
+#   git tag v0.8.0 && git push origin v0.8.0     -> builds and attaches to a release
+#   Actions tab -> "Build Windows release" -> Run workflow   -> builds, artifact only
+#
+# The tests run first: a release is never built from a red suite. Tests that
+# need a live Ollama or Windows OCR skip themselves on the runner.
+
+name: Build Windows release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build
+        shell: pwsh
+        run: ./packaging/build.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PERCH-windows
+          path: |
+            dist/PERCH-Setup-*.exe
+            dist/PERCH-portable-*.zip
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/PERCH-Setup-*.exe
+            dist/PERCH-portable-*.zip

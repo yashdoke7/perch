@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 
 # ---------------------------------------------------------------------- paths
 

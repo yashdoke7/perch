@@ -318,6 +318,21 @@ def lifecycle(store: MemoryStore, pipeline: Pipeline) -> list[tuple[str, bool, s
 
 # ------------------------------------------------------------------ run
 
+def last_result() -> Result:
+    """The most recent saved E3 run, dated -- for the default eval pass and the
+    app, which should not spend two minutes re-embedding to show a number."""
+    runs = sorted(RECORDS.glob("e3-*.json")) if RECORDS.exists() else []
+    if not runs:
+        return unavailable("E3", TITLE, CLAIM,
+                           "not run yet. It embeds two labelled personas and fits the "
+                           "floors (about two minutes with Ollama): python -m app eval e3")
+    data = json.loads(runs[-1].read_text(encoding="utf-8"))
+    return Result(name="E3", title=TITLE, claim=CLAIM,
+                  lines=[f"(saved run from {data.get('date', '?')} -- re-run: python -m app eval e3)",
+                         ""] + list(data.get("lines", [])),
+                  verdict=data.get("verdict", ""))
+
+
 def run(progress=None) -> Result:
     if not embed.is_semantic():
         return unavailable("E3", TITLE, CLAIM,

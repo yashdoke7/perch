@@ -1841,6 +1841,57 @@ def test_both_benchmark_personas_are_well_formed_and_distinct():
         "the held-out persona must not share memories with the one floors are fitted on"
 
 
+def _bridge_with_store(tmp_path, monkeypatch):
+    from app.core.pipeline import Pipeline
+    from app.memory.sessions import SessionStore
+    from app.memory.store import MemoryStore
+    from app.ui import bridge
+    monkeypatch.setattr(bridge.Api, "_ollama_models", lambda self: None)   # no network in tests
+    store = MemoryStore(root=tmp_path / "m", db=tmp_path / "i.sqlite3")
+    store.add(MemoryItem(cls="health", title="Asthma inhaler", body="Salbutamol as needed.",
+                         tags=["inhaler"], source_kind="manual"))
+    return bridge.Api(pipeline=Pipeline(store), sessions=SessionStore(root=tmp_path / "s"))
+
+
+def test_the_home_checklist_says_how_to_fix_each_item(tmp_path, monkeypatch):
+    api = _bridge_with_store(tmp_path, monkeypatch)
+    checks = {c["id"]: c for c in api.home()["checks"]}
+    assert set(checks) == {"ollama", "model", "embed", "index", "ocr", "hotkeys", "memory"}
+    assert checks["ollama"]["ok"] is False and "ollama serve" in checks["ollama"]["detail"]
+    assert checks["hotkeys"]["ok"] is None, "unknown outside the app, not a failure"
+    assert checks["memory"]["ok"] is True
+    assert all(c["detail"] for c in checks.values())
+
+
+def test_the_page_cannot_make_perch_download_an_arbitrary_model(tmp_path, monkeypatch):
+    api = _bridge_with_store(tmp_path, monkeypatch)
+    assert api.ollama_pull("some-other-model:70b")["ok"] is False
+
+
+def test_the_palette_finds_memories_by_title_body_or_tag(tmp_path, monkeypatch):
+    api = _bridge_with_store(tmp_path, monkeypatch)
+    for q in ("asthma", "salbutamol", "INHALER"):
+        assert [m["title"] for m in api.search_all(q)["memories"]] == ["Asthma inhaler"], q
+    assert api.search_all("  ") == {"memories": [], "sessions": []}
+
+
+def test_save_to_memory_suggests_a_class_but_never_saves(tmp_path, monkeypatch):
+    """Rule 1 (§3.4): nothing is stored from chat on its own. The suggestion
+    is only a default for the editor the user then saves -- or does not."""
+    api = _bridge_with_store(tmp_path, monkeypatch)
+    before = api._store.count()
+    assert api.suggest_class("what dose should I take for my doctor appointment?") == "health"
+    assert api.suggest_class("prep for my interview and resume") == "career"
+    assert api._store.count() == before
+
+
+def test_the_packaged_app_starts_itself_at_sign_in(monkeypatch):
+    from app import settings as settings_mod
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", r"C:\Programs\PERCH\PERCH.exe")
+    assert settings_mod.launcher_command() == r'"C:\Programs\PERCH\PERCH.exe"'
+
+
 def test_e3_scores_what_it_says():
     from app.eval.e3_local import score_query, summarise
     r = score_query(["a", "c", "h"], {"relevant": ["a", "b"], "ok": ["c"]}, private_keys={"h"})

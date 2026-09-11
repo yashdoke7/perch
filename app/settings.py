@@ -93,7 +93,11 @@ _RUN_NAME = "PERCH"
 
 
 def launcher_command() -> str:
-    """pythonw, so login does not open a console window."""
+    """pythonw, so login does not open a console window -- or, when running as
+    the packaged PERCH.exe, the executable itself. The installer's "start at
+    sign-in" task writes this same value, so the two never disagree."""
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
     exe = Path(sys.executable)
     pythonw = exe.with_name("pythonw.exe")
     runner = Path(__file__).resolve().parent.parent / "run_perch.pyw"

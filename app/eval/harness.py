@@ -115,8 +115,11 @@ def run(names: list[str] | None = None) -> list[Result]:
         # 3B model -- too slow for the default pass. The default pass shows the
         # most recent saved E1 run, clearly dated, instead of re-running it or
         # leaving the row blank.
-        from . import e1_overpersonalisation
+        # E3 re-embeds two personas and refits the floors (~2 minutes), so the
+        # default pass shows its most recent saved run the same way.
+        from . import e1_overpersonalisation, e3_local
         experiments["e1"] = e1_overpersonalisation.last_result
+        experiments["e3"] = e3_local.last_result
     wanted = [n.lower() for n in (names or experiments.keys())]
 
     results: list[Result] = []

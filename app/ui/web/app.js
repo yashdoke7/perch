@@ -95,6 +95,9 @@ const ICON = {
   cursor: '<path d="M5 3.5 18.5 10l-5.8 1.6L10.1 18z"/>',
   refresh: '<path d="M20 11.5a8 8 0 1 0-2.4 5.7"/><path d="M20 4.5v7h-7"/>',
   power: '<path d="M12 3.5v8"/><path d="M6.4 6.9a7.5 7.5 0 1 0 11.2 0"/>',
+  home: '<path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z"/>',
+  download: '<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/>',
+  keys: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/>',
 };
 function icon(name, cls = "") {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -118,6 +121,7 @@ const S = {
   imp: { step: "pick", info: null, cls: "", job: null, progress: null, proposals: [], dec: {}, cur: 0, uncal: false, summary: null, error: "", model: "" },
   evals: { job: null, results: {}, running: new Set(), progress: "", loaded: false },
   set: null,
+  home: null, pulls: {},
 };
 const clsOf = (name) => S.classes.find((c) => c.name === name);
 
@@ -229,18 +233,26 @@ function onOpen(ctx) {
 // ================================================================ chrome
 
 const VIEWS = [
-  ["ask", "Ask", "ask"],
-  ["sessions", "Conversations", "history"],
-  ["memory", "Memory", "memory"],
-  ["import", "Import", "import"],
-  ["eval", "Evaluate", "eval"],
-  ["settings", "Settings", "settings"],
+  ["home", "Home", "home", "main"],
+  ["ask", "Ask", "ask", "main"],
+  ["memory", "Memory", "memory", "data"],
+  ["sessions", "Conversations", "history", "data"],
+  ["import", "Import", "import", "data"],
+  ["eval", "Evaluate", "eval", "system"],
+  ["settings", "Settings", "settings", "system"],
 ];
+const GROUPS = { main: "", data: "Your data", system: "PERCH" };
 
 function buildNav() {
-  $("#navList").replaceChildren(...VIEWS.map(([v, label, ic], i) =>
-    h("button", { type: "button", dataset: { view: v }, onclick: () => setView(v) },
-      icon(ic), h("span", { text: label }), h("kbd", { text: `Ctrl ${i + 1}` }))));
+  const items = [h("button", { class: "nav-search", type: "button", onclick: () => openPalette() },
+    icon("search", "sm"), h("span", { text: "Search or jump to…" }), h("kbd", { text: "Ctrl K" }))];
+  let group = null;
+  VIEWS.forEach(([v, label, ic, g], i) => {
+    if (g !== group) { group = g; if (GROUPS[g]) items.push(h("div", { class: "nav-label", text: GROUPS[g] })); }
+    items.push(h("button", { type: "button", dataset: { view: v }, onclick: () => setView(v) },
+      icon(ic), h("span", { text: label }), h("kbd", { text: `Ctrl ${i + 1}` })));
+  });
+  $("#navList").replaceChildren(...items);
 }
 
 function bindChrome() {
@@ -265,13 +277,25 @@ function setView(v) {
   document.body.dataset.view = v;
   $$("#navList button").forEach((b) => b.setAttribute("aria-current", b.dataset.view === v ? "page" : "false"));
   closeDrawer();
-  ({ ask: renderAsk, sessions: loadSessions, memory: () => loadMemory(true), import: renderImport, eval: loadEval, settings: loadSettings })[v]();
+  ({ home: loadHome, ask: renderAsk, sessions: loadSessions, memory: () => loadMemory(true), import: renderImport, eval: loadEval, settings: loadSettings })[v]();
   if (v === "ask") focusComposer();
 }
 
 function setMode(mode, tell = true) {
   if (mode !== "compact" && mode !== "expanded") return;
+  const was = S.mode;
   S.mode = mode;
+  // Opening the full view with nothing in progress lands on Home; with a
+  // selection or a conversation going, stay on Ask.
+  const idle = !S.msgs.length && !(S.ctx && (S.ctx.selection || S.ctx.kind === "screenshot"));
+  if (mode === "expanded" && was === "compact" && S.view === "ask" && idle) {
+    document.body.classList.add("expanded");
+    document.body.classList.remove("compact");
+    setView("home");
+    renderTitlebar();
+    if (tell && API) API.set_mode(mode);
+    return;
+  }
   document.body.classList.toggle("expanded", mode === "expanded");
   document.body.classList.toggle("compact", mode === "compact");
   if (mode === "compact" && S.view !== "ask") {
@@ -461,7 +485,23 @@ function renderMsg(m) {
   m.el = md;
   const box = h("div", { class: "msg perch" + (m.error ? " error" : "") }, md);
   if (!m.streaming && m.trace) box.append(renderMeta(m.trace));
+  if (!m.streaming && !m.pending && !m.error && m.text) {
+    box.append(h("div", { class: "msg-actions" },
+      h("button", { class: "mini", type: "button", title: "Copy this answer", onclick: () => { API.copy_text(m.text); toast("Copied"); } }, icon("copy", "xs"), "Copy"),
+      h("button", { class: "mini", type: "button", title: "Keep this as a memory — you choose the class and edit it first", onclick: () => saveToMemory(m) }, icon("memory", "xs"), "Save to memory")));
+  }
   return box;
+}
+
+// Nothing is ever stored from chat on its own (architecture §3.4, rule 1).
+// This is the explicit path: the user asks, sees the draft, edits, saves.
+async function saveToMemory(m) {
+  const i = S.msgs.indexOf(m);
+  const question = i > 0 && S.msgs[i - 1].role === "user" ? S.msgs[i - 1].text : "";
+  let cls = "project";
+  try { cls = await API.suggest_class(`${question}\n${m.text}`); } catch (e) { /* keep the default */ }
+  openEditor({ cls, title: question.replace(/\s+/g, " ").slice(0, 90), body: m.text, tags: [] });
+  toast("Edit it into a fact worth keeping, then save");
 }
 
 function renderMeta(tr) {
@@ -929,6 +969,7 @@ function buildMemory() {
     pageHead("Memory",
       `What PERCH knows about you: one Markdown file per fact, in ${S.mem.ov.folder}. Read it, change it, delete it. A memory only reaches a prompt when it clears its class's floor.`,
       h("button", { class: "btn", type: "button", onclick: () => API.open_folder("memory") }, icon("folder", "sm"), "Open folder"),
+      h("button", { class: "btn", type: "button", onclick: exportMemory, title: "Every memory file in one .zip" }, icon("download", "sm"), "Export"),
       h("button", { class: "btn accent", type: "button", onclick: () => openEditor({ cls: S.mem.cls || "identity" }) }, icon("plus", "sm"), "New memory")),
     h("div", { class: "preview" },
       h("div", { class: "pv-head" }, icon("spark", "sm"), h("b", { text: "Test the gate" }),
@@ -1247,7 +1288,7 @@ function resetImport() {
 const EVALS = [
   { name: "e1", title: "Over-personalisation", sub: "Does memory stay quiet when a question doesn't need it? An OP-style probe, not OP-Bench itself.", cost: "minutes · local model + judge" },
   { name: "e2", title: "Budget assembly (C1)", sub: "Memory and tool results sharing one context window, at three model sizes.", cost: "instant" },
-  { name: "e3", title: "Retrieval quality", sub: "LongMemEval and LoCoMo.", cost: "needs datasets" },
+  { name: "e3", title: "Retrieval quality", sub: "Two labelled personas: floors fitted on one, scored on the other. Recall, precision, abstention and private leaks.", cost: "~2 min · embedder" },
   { name: "e4", title: "Admission gate (C2)", sub: "Leaked memories against useful context kept, with and without per-class floors.", cost: "seconds" },
   { name: "e5", title: "Privacy: zero egress", sub: "Does a private request open any connection off this machine?", cost: "seconds" },
   { name: "e6", title: "Latency", sub: "How long PERCH's own retrieval takes before the model starts.", cost: "~10 s" },
@@ -1256,7 +1297,7 @@ const EVALS = [
 
 async function loadEval() {
   if (!S.evals.loaded) {
-    try { S.evals.results.e1 = await API.eval_saved(); } catch (e) { /* no saved run */ }
+    try { Object.assign(S.evals.results, await API.eval_saved_all()); } catch (e) { /* no saved runs */ }
     S.evals.loaded = true;
   }
   renderEval();
@@ -1276,7 +1317,7 @@ function renderEval() {
       "The experiments from the architecture's evaluation plan, run on this machine. All seven are always listed, including the ones that can't run here, so the evidence isn't mistaken for complete.",
       h("button", { class: "btn accent", type: "button", disabled: !!E.job, onclick: () => runEval(["e2", "e4", "e5", "e6"]) }, icon("play", "sm"), "Run quick checks")),
     h("div", { class: "honest" }, h("b", { text: "Read these as what they are. " }),
-      "Nothing here is a benchmark score unless it says it ran. E1 uses PERCH's own 24 probes and a local judge model, because OP-Bench's data hasn't been released; its result says something about PERCH, not about OP-Bench."),
+      "Nothing here is a benchmark score unless it says it ran. E1 uses PERCH's own 24 probes and a local judge model, because OP-Bench's data hasn't been released. E3 uses two PERCH-written personas instead of LongMemEval and LoCoMo. Both say something about PERCH, not about those benchmarks."),
     E.job ? h("div", { class: "row", style: "margin-bottom:14px" }, h("span", { class: "badge running", text: "RUNNING" }), h("span", { class: "empty-note ellipsis", text: E.progress || "" })) : null,
     h("div", { class: "eval-grid" }, EVALS.map((e) => evalCard(e)))));
 }
@@ -1287,7 +1328,7 @@ function evalCard(e) {
   const running = E.running.has(e.name);
   const badge = running ? h("span", { class: "badge running", text: "RUNNING" })
     : r ? h("span", { class: `badge ${r.ran ? "ran" : "not"}`, text: r.ran ? "RAN" : "NOT RUN" }) : null;
-  const runnable = !["e3", "e7"].includes(e.name);
+  const runnable = e.name !== "e7";
   return h("div", { class: "card eval" },
     h("div", { class: "top" },
       h("span", { class: "name", text: e.name.toUpperCase() }),
@@ -1295,6 +1336,7 @@ function evalCard(e) {
       h("span", { class: "cost", text: e.cost }), badge,
       runnable ? h("button", { class: "btn", type: "button", disabled: !!E.job, onclick: () => {
         if (e.name === "e1") confirmDialog("Run E1 now?", "It generates and judges about 70 answers with local models — a few minutes on a GPU, closer to 15 on a CPU. You can keep using PERCH meanwhile.", "Run E1", () => runEval(["e1"]), "accent");
+        else if (e.name === "e3") confirmDialog("Run E3 now?", "It embeds two labelled personas in throwaway stores and fits the floors — about two minutes. Your own memory is never touched.", "Run E3", () => runEval(["e3"]), "accent");
         else runEval([e.name]);
       } }, icon("play", "sm"), "Run") : null),
     r && r.ran && r.verdict ? h("div", { class: "verdict", text: r.verdict }) : null,
@@ -1305,6 +1347,7 @@ function evalCard(e) {
 // ================================================================ jobs
 
 function onJob(ev) {
+  if (ev.kind === "pull") { onPull(ev); return; }
   if (ev.kind === "import" && ev.job === S.imp.job) {
     const I = S.imp;
     if (ev.state === "start" || ev.state === "progress") {
@@ -1430,7 +1473,8 @@ function renderSettings() {
 
     h("div", { class: "set-group" }, h("h3", { text: "Data" }), h("div", { class: "set-card" },
       setRow("Your PERCH folder", T.paths.home, h("button", { class: "btn", type: "button", onclick: () => API.open_folder("home") }, icon("folder", "sm"), "Open")),
-      setRow("Rebuild the memory index", "Re-reads every memory file. Do this after switching embedding model.", h("button", { class: "btn", type: "button", onclick: rebuildIndex }, icon("refresh", "sm"), "Rebuild")),
+      setRow("Export memory", "Every memory file in one .zip: a backup, or a way to move to another machine.", h("button", { class: "btn", type: "button", onclick: exportMemory }, icon("download", "sm"), "Export")),
+      setRow("Rebuild the memory index", "Re-reads every memory file. PERCH does this itself when the embedding model changes.", h("button", { class: "btn", type: "button", onclick: rebuildIndex }, icon("refresh", "sm"), "Rebuild")),
       setRow("Find duplicate memories", "Near-identical memories in the same class, merged into one.", h("button", { class: "btn", type: "button", onclick: findDuplicates }, icon("search", "sm"), "Find")),
       setRow("Demo memory", "Adds a small example profile so you can see how the gate behaves.", h("button", { class: "btn", type: "button", onclick: seedDemo }, "Load")))),
 
@@ -1454,6 +1498,244 @@ async function findDuplicates() {
       refreshStatus();
     } }],
   });
+}
+
+// ================================================================ home
+
+async function loadHome() {
+  if (!S.home) $("#view-home").replaceChildren(h("div", { class: "page" }, h("p", { class: "empty-note", text: "Checking this machine…" })));
+  try { S.home = await API.home(); } catch (e) { S.home = null; }
+  renderHome();
+}
+
+async function recheck() {
+  toast("Checking again…");
+  try { S.home = await API.recheck(); } catch (e) { return; }
+  await refreshStatus();
+  renderHome();
+}
+
+function renderHome() {
+  const H = S.home;
+  const el = $("#view-home");
+  if (!H) { el.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty-note", text: "PERCH couldn't read its own status." }))); return; }
+  const attention = H.checks.filter((c) => c.ok === false);
+  const key = H.hotkeys && H.hotkeys.selection;
+  el.replaceChildren(h("div", { class: "page home" },
+    h("div", { class: "hero" },
+      h("div", {},
+        h("h1", {}, greeting(), attention.length
+          ? h("span", { class: "status-pill warn" }, icon("warn", "xs"), `${attention.length} to set up`)
+          : h("span", { class: "status-pill ok" }, icon("check", "xs"), "Ready")),
+        h("p", { text: attention.length
+          ? "PERCH works now, but it is at its best once everything below is ticked."
+          : `Select text in any app and press ${key || "your shortcut"}, or ask something here.` })),
+      h("div", { class: "hero-actions" },
+        h("button", { class: "btn", type: "button", onclick: () => openPalette() }, icon("search", "sm"), "Search", h("kbd", { text: "Ctrl K" })),
+        h("button", { class: "btn accent", type: "button", onclick: () => setView("ask") }, icon("ask", "sm"), "Ask something"))),
+    h("div", { class: "home-grid" },
+      h("div", { class: "col" }, setupCard(H.checks), recentCard(H.recent)),
+      h("div", { class: "col" }, memoryCard(H.counts), evidenceCard(H.evals), shortcutsCard(H.hotkeys)))));
+}
+
+function card(title, aside, ...body) {
+  return h("section", { class: "panel-card" },
+    h("header", {}, h("h3", {}, title), aside ? h("div", { class: "aside" }, aside) : null),
+    h("div", { class: "body" }, body));
+}
+
+function setupCard(checks) {
+  const done = checks.filter((c) => c.ok === true).length;
+  const known = checks.filter((c) => c.ok !== null).length;
+  return card("Setup", [h("span", { class: "muted", text: `${done} of ${known}` }),
+    h("button", { class: "btn ghost", type: "button", onclick: recheck, title: "Look again: picks up a model you started or downloaded" }, icon("refresh", "sm"), "Re-check")],
+    checks.map((c) => {
+      const pull = c.pull && S.pulls[c.pull];
+      let action = null;
+      if (c.pull) {
+        action = pull && !pull.error
+          ? h("span", { class: "muted", text: pull.total ? `${Math.round((pull.n / pull.total) * 100)}%` : "starting…" })
+          : h("button", { class: "btn", type: "button", onclick: () => startPull(c.pull), title: "Downloads through your local Ollama" }, icon("download", "sm"), "Download");
+      } else if (c.action === "rebuild") action = h("button", { class: "btn", type: "button", onclick: async () => { await rebuildIndex(); loadHome(); } }, icon("refresh", "sm"), "Rebuild");
+      else if (c.action === "import") action = h("button", { class: "btn", type: "button", onclick: () => setView("import") }, icon("import", "sm"), "Import");
+      const st = c.ok === true ? "ok" : c.ok === false ? "bad" : "na";
+      return h("div", { class: "check" },
+        h("span", { class: `st ${st}` }, icon(st === "ok" ? "check" : st === "bad" ? "warn" : "close", "xs")),
+        h("div", { style: "min-width:0" }, h("b", { text: c.title }),
+          h("span", { class: "d", text: pull && pull.error ? `Download failed: ${pull.error}` : pull ? (pull.label || "downloading") : c.detail }),
+          pull && pull.total && !pull.error ? h("div", { class: "progress" }, h("div", { style: `width:${(pull.n / pull.total) * 100}%` })) : null),
+        action);
+    }));
+}
+
+function memoryCard(counts) {
+  const total = Object.values(counts || {}).reduce((a, b) => a + b, 0);
+  return card("Your memory", h("button", { class: "btn ghost", type: "button", onclick: () => setView("memory") }, "Open", icon("chev", "xs")),
+    h("div", { class: "big-num", style: "margin-top:12px" }, fmt(total), h("small", { text: total === 1 ? "memory on this machine" : "memories on this machine" })),
+    total ? h("div", { class: "mem-bar" }, S.classes.filter((c) => counts[c.name]).map((c) =>
+      h("div", { class: `cls-${c.name}`, style: `flex:${counts[c.name]}`, title: `${c.name}: ${counts[c.name]}` }))) : h("div", { style: "height:12px" }),
+    h("div", { class: "mem-legend" }, S.classes.map((c) => h("div", { class: `row cls-${c.name}` },
+      h("span", { class: "sw" }), h("span", { text: c.name }), c.private ? icon("lock", "xs") : null, h("span", { class: "n", text: fmt(counts[c.name] || 0) })))),
+    h("div", { class: "row", style: "flex-wrap:wrap" },
+      h("button", { class: "btn", type: "button", onclick: () => { setView("memory"); openEditor({ cls: "identity" }); } }, icon("plus", "sm"), "New memory"),
+      h("button", { class: "btn", type: "button", onclick: () => setView("import") }, icon("import", "sm"), "Import"),
+      h("button", { class: "btn ghost", type: "button", onclick: exportMemory }, icon("download", "sm"), "Export")));
+}
+
+function recentCard(recent) {
+  return card("Recent conversations", recent && recent.length ? h("button", { class: "btn ghost", type: "button", onclick: () => setView("sessions") }, "All", icon("chev", "xs")) : null,
+    recent && recent.length
+      ? h("div", { class: "recent" }, recent.map((s) => h("button", { type: "button", onclick: async () => { setView("sessions"); await openSession(s.id); } },
+          h("span", { class: "t", text: s.title }),
+          h("span", { class: "s" }, s.private ? icon("lock", "xs") : null,
+            h("span", { text: [s.source_app, `${dayLabel(s.updated)}, ${timeOf(s.updated)}`].filter(Boolean).join(" · ") })))))
+      : h("p", { class: "empty-note", style: "padding:10px 0", text: "Nothing yet. Conversations you have in PERCH appear here, kept on this machine." }));
+}
+
+function evidenceCard(evals) {
+  return card("Latest evidence", h("button", { class: "btn ghost", type: "button", onclick: () => setView("eval") }, "Evaluate", icon("chev", "xs")),
+    evals && evals.length
+      ? evals.map((e) => h("div", { class: "evidence" },
+          h("div", { class: "top" }, h("span", { class: "badge ran", text: e.name }), h("b", { text: e.title }),
+            h("span", { class: "muted", text: e.date ? dayLabel(e.date) : "" })),
+          h("p", { text: (e.verdict || "").split(/(?<=\.)\s/)[0] })))
+      : h("p", { class: "empty-note", style: "padding:10px 0", text: "No saved runs yet. The Evaluate page runs them on this machine." }));
+}
+
+function shortcutsCard(keys) {
+  const k = keys || {};
+  const row = (label, combo) => h("div", { class: "sc-row" }, h("span", { text: label }), h("span", { class: "kbd", text: combo || "not registered" }));
+  return card("Shortcuts", h("button", { class: "btn ghost", type: "button", onclick: showShortcuts }, "All", icon("chev", "xs")),
+    row("Ask about the selection", k.selection), row("Screenshot and ask", k.screenshot), row("Ask anything", k.plain));
+}
+
+async function startPull(model) {
+  S.pulls[model] = { n: 0, total: 0, label: "starting…" };
+  renderHome();
+  const r = await API.ollama_pull(model);
+  if (!r.ok) { S.pulls[model] = { error: r.error }; renderHome(); }
+}
+
+async function onPull(ev) {
+  if (ev.state === "progress") S.pulls[ev.model] = { n: ev.n, total: ev.total, label: ev.label };
+  else if (ev.state === "error") S.pulls[ev.model] = { error: ev.message };
+  else if (ev.state === "done") {
+    delete S.pulls[ev.model];
+    toast(`${ev.model} is ready`);
+    await recheck();
+    return;
+  }
+  if (S.view === "home") renderHome();
+}
+
+async function exportMemory() {
+  let r;
+  try { r = await API.memory_export(); } catch (e) { toast("Export failed", "bad"); return; }
+  if (r.cancelled) return;
+  toast(r.ok ? `Exported ${plural(r.count, "memory", "memories")}` : (r.error || "Export failed"), r.ok ? "" : "bad");
+}
+
+// ================================================================ command palette
+
+const ACTIONS = [
+  { label: "Home", icon: "home", run: () => setView("home") },
+  { label: "Ask something", icon: "ask", run: () => setView("ask") },
+  { label: "New conversation", icon: "plus", run: () => { setView("ask"); newChat(); } },
+  { label: "Memory", icon: "memory", run: () => setView("memory") },
+  { label: "New memory", icon: "edit", run: () => { setView("memory"); openEditor({ cls: "identity" }); } },
+  { label: "Conversations", icon: "history", run: () => setView("sessions") },
+  { label: "Import AI history", icon: "import", run: () => setView("import") },
+  { label: "Evaluate", icon: "eval", run: () => setView("eval") },
+  { label: "Settings", icon: "settings", run: () => setView("settings") },
+  { label: "Toggle private mode", icon: "lock", hint: "Ctrl P", run: () => togglePrivate() },
+  { label: "Export memory as .zip", icon: "download", run: () => exportMemory() },
+  { label: "Rebuild the memory index", icon: "refresh", run: () => rebuildIndex() },
+  { label: "Keyboard shortcuts", icon: "keys", hint: "?", run: () => showShortcuts() },
+];
+const P = { q: "", items: [], sel: 0, found: { memories: [], sessions: [] }, seq: 0 };
+
+function openPalette() {
+  closeDrawer();
+  const pal = $("#palette");
+  const input = h("input", { type: "text", placeholder: "Search memories and conversations, or type a command", "aria-label": "Command palette",
+    oninput: (e) => { P.q = e.target.value; P.sel = 0; renderPalette(); searchPalette(); },
+    onkeydown: paletteKey });
+  P.q = ""; P.sel = 0; P.found = { memories: [], sessions: [] };
+  pal.replaceChildren(h("div", { class: "pal-card", role: "dialog", "aria-modal": "true", onclick: (e) => e.stopPropagation() },
+    h("div", { class: "pal-input" }, icon("search"), input),
+    h("div", { id: "palList", class: "pal-list", role: "listbox" }),
+    h("div", { class: "pal-foot" }, h("span", {}, h("kbd", { text: "↑↓" }), " move"), h("span", {}, h("kbd", { text: "Enter" }), " open"), h("span", {}, h("kbd", { text: "Esc" }), " close"))));
+  pal.onclick = closePalette;
+  pal.hidden = false;
+  renderPalette();
+  input.focus();
+}
+
+function closePalette() {
+  const pal = $("#palette");
+  pal.hidden = true;
+  pal.replaceChildren();
+}
+
+const searchPalette = debounce(async () => {
+  const q = P.q.trim();
+  const seq = ++P.seq;
+  if (!q) { P.found = { memories: [], sessions: [] }; renderPalette(); return; }
+  let r;
+  try { r = await API.search_all(q); } catch (e) { return; }
+  if (seq !== P.seq || $("#palette").hidden) return;
+  P.found = r;
+  renderPalette();
+}, 180);
+
+function renderPalette() {
+  const list = $("#palList");
+  if (!list) return;
+  const words = P.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const acts = ACTIONS.filter((a) => words.every((w) => a.label.toLowerCase().includes(w)));
+  P.items = [
+    ...acts.map((a) => ({ group: "Actions", label: a.label, icon: a.icon, sub: a.hint || "", run: a.run })),
+    ...P.found.memories.map((m) => ({ group: "Memories", label: m.title, cls: m.cls, sub: m.cls, run: () => { setView("memory"); openEditor(m); } })),
+    ...P.found.sessions.map((s) => ({ group: "Conversations", label: s.title, icon: "history", sub: dayLabel(s.updated), run: async () => { setView("sessions"); await openSession(s.id); } })),
+  ];
+  P.sel = clamp(P.sel, 0, Math.max(0, P.items.length - 1));
+  list.replaceChildren();
+  if (!P.items.length) { list.append(h("div", { class: "pal-empty", text: "Nothing matches." })); return; }
+  let group = "";
+  P.items.forEach((it, i) => {
+    if (it.group !== group) { group = it.group; list.append(h("div", { class: "pal-group", text: group })); }
+    list.append(h("button", { class: `pal-item${it.cls ? ` cls-${it.cls}` : ""}`, type: "button", role: "option", "aria-selected": String(i === P.sel),
+      onmousemove: () => { if (P.sel !== i) { P.sel = i; renderPalette(); } }, onclick: () => runPalette(i) },
+      it.cls ? h("span", { class: "sw" }) : icon(it.icon || "chev", "sm"), h("span", { text: it.label }), it.sub ? h("span", { class: "sub", text: it.sub }) : null));
+  });
+  const cur = list.querySelector('[aria-selected="true"]');
+  if (cur) cur.scrollIntoView({ block: "nearest" });
+}
+
+function runPalette(i) {
+  const it = P.items[i];
+  closePalette();
+  if (it) it.run();
+}
+
+function paletteKey(e) {
+  if (e.key === "ArrowDown") { e.preventDefault(); P.sel = Math.min(P.items.length - 1, P.sel + 1); renderPalette(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); P.sel = Math.max(0, P.sel - 1); renderPalette(); }
+  else if (e.key === "Enter") { e.preventDefault(); runPalette(P.sel); }
+  else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePalette(); }
+}
+
+function showShortcuts() {
+  const k = (S.boot && S.boot.hotkeys) || {};
+  const rows = [
+    ["Ask about the selection, anywhere", k.selection], ["Screenshot and ask, anywhere", k.screenshot], ["Ask anything, anywhere", k.plain],
+    ["Search or jump", "Ctrl K"], ["Ask / send", "Enter"], ["New line", "Shift Enter"], ["Replace the selection with the answer", "Ctrl Enter"],
+    ["Insert the answer below", "Ctrl Shift Enter"], ["Copy the answer", "Ctrl Shift C"], ["Private mode", "Ctrl P"], ["New conversation", "Ctrl N"],
+    ["Panel ↔ full view", "Ctrl E"], ["Go to a section", "Ctrl 1 – 7"], ["Keep / skip while importing", "K / S"], ["Hide PERCH", "Esc"],
+  ];
+  openModal({ title: "Keyboard shortcuts", iconName: "keys",
+    body: h("div", {}, rows.map(([label, combo]) => h("div", { class: "sc-row" }, h("span", { text: label }), h("span", { class: "kbd", text: combo || "not registered" })))),
+    actions: [{ label: "Close" }] });
 }
 
 // ================================================================ overlays
@@ -1487,7 +1769,7 @@ function confirmDialog(title, text, verb, fn, kind = "danger-solid") {
 let toastTimer = null;
 function toast(text, kind = "") {
   const t = $("#toast");
-  t.textContent = text;
+  t.replaceChildren(icon(kind === "bad" ? "warn" : "check", "sm"), h("span", { text }));
   t.className = "toast" + (kind ? ` ${kind}` : "");
   t.hidden = false;
   clearTimeout(toastTimer);
@@ -1504,6 +1786,11 @@ function typing(e) {
 function bindKeys() {
   document.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
+    if (!$("#palette").hidden) {
+      if (e.key === "Escape") { e.preventDefault(); closePalette(); }
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && k === "k") { e.preventDefault(); if ($("#modal").hidden) openPalette(); return; }
     if (!$("#modal").hidden) {
       if (e.key === "Escape") { const f = escHandler; closeModal(); if (f) f(); e.preventDefault(); }
       return;
@@ -1521,7 +1808,8 @@ function bindKeys() {
     if (e.ctrlKey && !e.shiftKey && k === "e") { e.preventDefault(); setMode(S.mode === "expanded" ? "compact" : "expanded"); return; }
     if (e.ctrlKey && !e.shiftKey && k === "p") { e.preventDefault(); togglePrivate(); return; }
     if (e.ctrlKey && !e.shiftKey && k === "n") { e.preventDefault(); setView("ask"); newChat(); return; }
-    if (e.ctrlKey && /^[1-6]$/.test(e.key)) { e.preventDefault(); setView(VIEWS[+e.key - 1][0]); return; }
+    if (e.ctrlKey && /^[1-7]$/.test(e.key)) { e.preventDefault(); setView(VIEWS[+e.key - 1][0]); return; }
+    if (e.key === "?" && !typing(e)) { e.preventDefault(); showShortcuts(); return; }
     if (S.view === "import" && S.imp.step === "review" && !typing(e) && S.imp.keys) {
       if (k === "k") S.imp.keys.keep();
       else if (k === "s") S.imp.keys.skip();
