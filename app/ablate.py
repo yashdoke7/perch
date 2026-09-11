@@ -95,6 +95,16 @@ def _refuse_on_fallback() -> bool:
     return True
 
 
+# The text a question is asked ABOUT, where the product would have one. A
+# rewrite is always a rewrite of a selection; asked bare, "rewrite this" has
+# nothing to rewrite, and the ablation used to ask it bare -- so config C was
+# scored on a path the panel never takes (no selection, so no voice rule).
+SELECTIONS = {
+    "rewrite this to be more formal":
+        "hey, cant make it to the review tomorrow, will send the slides tonight",
+}
+
+
 def run() -> None:
     store = MemoryStore()
     if not store.count():
@@ -111,14 +121,17 @@ def run() -> None:
     wanted = sum(1 for _, _, need in QUERIES if need)
 
     for question, expectation, need in QUERIES:
-        qvec = embed.embed(question)
+        selection = SELECTIONS.get(question, "")
+        qvec = embed.embed(f"{question}\n{selection[:1200]}" if selection else question)
         print("=" * 78)
         print(f"Q: {question}")
+        if selection:
+            print(f"   selected: {selection!r}")
         print(f"   expected: {expectation}\n")
 
         # ---- A: naive global top-k, no gate ------------------------------
         cands = store.candidates(all_classes, qvec, config.OVERFETCH)
-        ranked_all = ranker.rank(cands, question)
+        ranked_all = ranker.rank(cands, question, selection)
         naive = ranked_all[:NAIVE_K]
         print("  A  naive global top-k, no gate")
         print(_fmt(naive))
@@ -129,7 +142,7 @@ def run() -> None:
         print(_fmt(globals_kept[:NAIVE_K]))
 
         # ---- C: ours ------------------------------------------------------
-        intent = router.resolve(question, "")
+        intent = router.resolve(question, selection)
         eligible = list(intent.eligible)
         if not intent.transform_only:
             for cls_name in all_classes:
@@ -139,7 +152,9 @@ def run() -> None:
                 if hit and hit[0][1] >= config.PROBE_FLOOR:
                     eligible.append(cls_name)
         routed = store.candidates(eligible, qvec, config.OVERFETCH)
-        result = admission.admit(ranker.rank(routed, question))
+        # Exactly Pipeline._gate's call, voice rule included.
+        result = admission.admit(ranker.rank(routed, question, selection),
+                                 voice_always=intent.transform_only)
         print(f"\n  C  ours — routed to [{', '.join(eligible)}], per-class floors")
         print(_fmt(result.admitted))
         if result.abstained:

@@ -77,7 +77,8 @@ PRIVATE_BY_DEFAULT = os.environ.get("PERCH_PRIVATE_DEFAULT", "0") == "1"
 OVERFETCH = 30          # candidates pulled before ranking, per eligible class
 PROBE_FLOOR = 0.22      # a class joins the eligible set if its best item reaches this.
                         # Deliberately low: routing is permissive, admission is strict.
-MARGIN_ALPHA = 0.62     # an item must reach this fraction of its class's best
+MARGIN_ALPHA = 0.75     # an item must reach this fraction of its class's best.
+                        # Fitted with the floors by E3 (was a hand-set 0.62).
 MAX_ITEMS = 12          # hard ceiling on admitted items, before the budget bites
 
 # Reserves carved out of the model's context window before memory gets any.

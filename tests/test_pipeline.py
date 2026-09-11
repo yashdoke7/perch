@@ -133,10 +133,15 @@ def test_sensitive_classes_are_private_by_default():
 
 
 def test_identity_has_the_lowest_floor():
-    """Identity is broad and cheap, so it should be admitted easily; health is
-    specific, so a weak match there must not get through."""
-    assert mc.floor_for("identity") < mc.floor_for("project")
-    assert mc.floor_for("health") == max(c.floor for c in mc.CLASSES.values())
+    """Identity is broad and cheap, so it should be admitted easily. The
+    floors are FITTED by E3 now, not chosen; the fit kept this ordering, and
+    if a refit breaks it, look at why before relaxing the test. (The old
+    second assertion -- health highest -- was a hand-set belief the fit did
+    not support: leaks are stopped by routing and the margin, not by a high
+    health floor, which only cost real answers.)"""
+    assert mc.floor_for("identity") == min(c.floor for c in mc.CLASSES.values())
+    assert all(0.10 <= c.floor <= 0.60 for c in mc.CLASSES.values()), \
+        "floors are on the calibrated-similarity scale E3 fits over"
 
 
 def test_item_roundtrips_through_markdown():
@@ -1758,3 +1763,88 @@ def test_one_answer_of_ten_is_not_evidence():
                         {"A": 1, "B": 2, "C": 5}).startswith("INCONCLUSIVE"), \
         "less leaking bought with more sycophancy is not a win"
     assert verdict_head({"A": 0, "B": 1, "C": 4}, zero, zero).startswith("CONTRADICTS")
+
+
+# ------------------------------------------- ★ retrieval, as E3 corrected it
+
+def test_an_unrelated_memory_scores_zero_however_recent():
+    """Recency used to ADD 0.08 to everything, so a memory with no similarity
+    at all still cleared the identity floor on 'capital of France'."""
+    item = MemoryItem(cls="identity", title="t", body="b", tags=["x"], uses=9)
+    [s] = ranker.rank([(item, 0.0)], "what is the capital of France?")
+    assert s.score == 0.0
+
+
+def test_a_tag_every_candidate_shares_counts_for_less():
+    """'tidewatch' on every project item lifted all of them on any Tidewatch
+    question. Weighted by rarity within the candidates, it barely counts."""
+    items = [MemoryItem(cls="project", title=t, body="", tags=["tidewatch", t])
+             for t in ("deploy", "team", "model")]
+    ranked = {s.item.title: s for s in ranker.rank([(i, 0.5) for i in items],
+                                                   "how is tidewatch deployed? deploy")}
+    assert ranked["deploy"].tag_overlap == pytest.approx(0.75)   # (0.5 + 1.0) / 2
+    assert ranked["team"].tag_overlap == pytest.approx(0.25)     # 0.5 / 2, was 0.5
+    assert ranked["deploy"].score > ranked["team"].score
+
+
+def test_the_floor_reads_similarity_not_tag_matches():
+    """Tags reorder memories that are about the question; they cannot carry
+    one that is not over the floor. Flooring the ranked score did exactly
+    that, and made the floors depend on how the user happened to tag."""
+    item = MemoryItem(cls="project", title="x", body="", tags=["panel"], entities=["panel"])
+    [s] = ranker.rank([(item, 0.05)], "panel panel")
+    assert s.score > mc.floor_for("project"), "the tag match inflates the ranked score..."
+    assert admission.admit([s]).abstained, "...and the gate is not fooled by it"
+
+
+def test_rewrite_requests_are_recognised_in_any_form():
+    for q in ("make this shorter", "say it more formally", "a summary of this, please"):
+        assert router.resolve(q, selection="some text").transform_only, q
+    assert not router.resolve("why does this crash?", selection="some text").transform_only
+
+
+def test_voice_memory_rides_along_on_a_rewrite_whatever_its_score():
+    """'Make this shorter' is never semantically close to 'how I write', so a
+    similarity floor would always drop the one memory a rewrite needs."""
+    def ranked():
+        voice = MemoryItem(cls="identity", title="How I write", body="Short.", tags=["voice"])
+        bio = MemoryItem(cls="identity", title="Who I am", body="Student.", tags=["about"])
+        return ranker.rank([(voice, 0.05), (bio, 0.05)], "make this shorter", "text")
+    assert admission.admit(ranked()).abstained
+    result = admission.admit(ranked(), voice_always=True)
+    assert [s.item.title for s in result.admitted] == ["How I write"], "voice only, not biography"
+    assert "rewrite" in result.admitted[0].reason
+
+
+def test_an_index_built_by_another_embedder_is_rebuilt(tmp_path):
+    """Two models can share a vector length, so the length cannot say the
+    vectors are comparable. The index records what built it."""
+    from app.memory.store import MemoryStore
+    root, db = tmp_path / "m", tmp_path / "i.sqlite3"
+    first = MemoryStore(root=root, db=db)
+    first.add(MemoryItem(cls="project", title="A", body="alpha", source_kind="manual"))
+    first.db.execute("UPDATE meta SET value='ollama:another-model' WHERE key='embedder'")
+    first.db.execute("UPDATE items SET vector='[1.0]'")
+    first.db.commit()
+    reopened = MemoryStore(root=root, db=db)
+    assert reopened.count() == 1
+    assert reopened.index_health()["stale"] == 0
+
+
+def test_both_benchmark_personas_are_well_formed_and_distinct():
+    from app.eval import e3_local
+    dev, held = e3_local.load(e3_local.DEV), e3_local.load(e3_local.HELDOUT)
+    for data in (dev, held):
+        assert {q["kind"] for q in data["queries"]} <= set(e3_local.KINDS)
+        assert {it["cls"] for it in data["items"]} == set(mc.ORDER), "all six classes"
+    assert not ({it["body"] for it in dev["items"]} & {it["body"] for it in held["items"]}), \
+        "the held-out persona must not share memories with the one floors are fitted on"
+
+
+def test_e3_scores_what_it_says():
+    from app.eval.e3_local import score_query, summarise
+    r = score_query(["a", "c", "h"], {"relevant": ["a", "b"], "ok": ["c"]}, private_keys={"h"})
+    assert (r["hits"], r["acceptable"], r["private_leak"], r["missed"]) == (1, 2, True, ["b"])
+    s = summarise([r, score_query([], {"relevant": []}, set())])
+    assert (s["recall"], s["abstain_ok"], s["leaks"]) == (0.5, 1.0, 1)
+    assert s["precision"] == pytest.approx(2 / 3)

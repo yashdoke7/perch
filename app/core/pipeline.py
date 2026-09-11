@@ -93,6 +93,7 @@ class Trace:
         def row(s: Scored) -> dict:
             return {"id": s.item.id, "cls": s.item.cls, "title": s.item.title,
                     "score": round(float(s.score), 3),
+                    "sim": round(float(s.similarity), 3),     # what the floor is compared to
                     "floor": mc.floor_for(s.item.cls),
                     "private": mc.is_private_class(s.item.cls),
                     "reason": s.reason}
@@ -269,7 +270,7 @@ class Pipeline:
         ranked = ranker.rank(candidates, req.question, req.selection)
         stage("rank", f"{len(ranked)} candidates")
 
-        result = admission.admit(ranked)
+        result = admission.admit(ranked, voice_always=intent.transform_only)
 
         trace.admitted = result.admitted
         trace.dropped = result.dropped

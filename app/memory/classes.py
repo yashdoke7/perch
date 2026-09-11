@@ -37,14 +37,17 @@ CLASSES: dict[str, MemoryClass] = {
     "identity": MemoryClass(
         name="identity",
         holds="who you are, how you want answers written, standing instructions",
-        # Low floor: identity is broad by nature and should be admitted easily.
-        # Calibrated against nomic-embed-text + this class's own 1.25x prior:
-        # measured 0.125 (ranked score) for a genuinely unrelated query against
-        # 0.230 for a real voice/style match (a "rewrite this" transform
-        # request) -- 0.20 sits between them with margin on both sides. See
-        # embed.relevance() for why the floor is interpreted post-calibration
-        # rather than as a raw cosine number.
-        floor=0.20,
+        # FITTED, not chosen (self-critique §6): every floor below comes from
+        # E3's development persona (68 memories, 112 labelled questions,
+        # nomic-embed-text) and was then scored, unchanged, on a held-out
+        # persona it never saw. Floors compare against calibrated SEMANTIC
+        # SIMILARITY (admission.py says why), so a ranker change leaves them
+        # alone -- but a different embedder needs a refit: python -m app eval e3
+        #
+        # Identity rose from a hand-set 0.20: at that value voice and schedule
+        # notes rode into unrelated questions. Rewrites do not depend on it --
+        # voice memory is admitted by rule for those (admission.VOICE_TAGS).
+        floor=0.26,
         private=False,
         prior=1.25,
         cap=40,
@@ -59,7 +62,10 @@ CLASSES: dict[str, MemoryClass] = {
     "project": MemoryClass(
         name="project",
         holds="bounded work: purpose, stack, decisions, problems, timeline, results",
-        floor=0.30,
+        # The least stable of the six across CV folds (0.34-0.56): a project's
+        # items share a topic and cluster tightly, so the margin test, not the
+        # floor, is what stops "who works on X?" admitting all of project X.
+        floor=0.34,
         private=False,
         prior=1.10,
         schema=[
@@ -75,7 +81,7 @@ CLASSES: dict[str, MemoryClass] = {
     "academic": MemoryClass(
         name="academic",
         holds="institution, semester, subjects, formats, deadlines, conventions",
-        floor=0.30,
+        floor=0.46,
         private=False,
         prior=1.00,
         schema=[
@@ -89,7 +95,7 @@ CLASSES: dict[str, MemoryClass] = {
     "career": MemoryClass(
         name="career",
         holds="roles, skills, applications, interviews, targets",
-        floor=0.30,
+        floor=0.36,
         private=False,
         prior=1.00,
         schema=[
@@ -100,13 +106,18 @@ CLASSES: dict[str, MemoryClass] = {
             "target roles, companies and constraints",
         ],
     ),
-    # Health and Personal sit higher because a wrong admission here is the
-    # cross-domain leakage OP-Bench measures -- and because admitting either
-    # forces the request local, which the user should not trigger by accident.
+    # Health and Personal were hand-set HIGHER (0.42, 0.38), on the reasoning
+    # that a wrong admission here is the leakage OP-Bench measures. Measured,
+    # that bought nothing: the leaks were already stopped upstream -- the
+    # router only makes these classes eligible on health/personal cues or a
+    # semantic probe, and the margin test does the rest -- while the high
+    # floor dropped real answers ("what triggers my migraines?" drew nothing).
+    # Fitted lower, E3 still records ZERO private leaks on the held-out
+    # persona. Admitting either still forces the request local.
     "health": MemoryClass(
         name="health",
         holds="conditions, medications, allergies, appointments, reports",
-        floor=0.42,
+        floor=0.28,
         private=True,
         prior=0.95,
         cap=200,
@@ -121,7 +132,7 @@ CLASSES: dict[str, MemoryClass] = {
     "personal": MemoryClass(
         name="personal",
         holds="relationships, preferences, finances, travel, home, commitments",
-        floor=0.38,
+        floor=0.32,
         private=True,
         prior=0.90,
         schema=[

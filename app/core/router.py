@@ -65,6 +65,17 @@ TRANSFORM = {
     "simplify", "bullet", "tone", "grammar", "spelling", "concise", "polish",
 }
 
+# Inflections the exact set misses: "make this shorter", "say it more
+# formally", "a summary of this". Prefixes, so each stem covers its family.
+TRANSFORM_STEMS = ("rewrit", "reword", "rephras", "shorte", "summar", "translat",
+                   "proofread", "formal", "simplif", "concis", "paraphras", "tighten")
+
+
+def is_transform(words: set[str]) -> bool:
+    return bool(words & TRANSFORM) or any(
+        w.startswith(stem) for w in words for stem in TRANSFORM_STEMS)
+
+
 EXT_PROJECT = {".py", ".js", ".ts", ".rs", ".java", ".c", ".cpp", ".go", ".rb",
                ".json", ".yaml", ".yml", ".toml", ".sql", ".sh", ".tsx", ".jsx"}
 EXT_DOC = {".pdf", ".docx", ".doc", ".tex", ".md"}
@@ -95,7 +106,7 @@ def resolve(question: str, selection: str = "", source_app: str = "",
     # --- scope -------------------------------------------------------------
     # A short transform request against a selection is the commonest case in a
     # selection-triggered tool, and it wants voice, not biography.
-    transform = bool(words & TRANSFORM)
+    transform = is_transform(words)
     if transform and selection and len(words) <= 12:
         return Intent(
             needs_memory=True,

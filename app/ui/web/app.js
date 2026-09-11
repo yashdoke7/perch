@@ -566,6 +566,8 @@ function reason(it) {
   let m;
   if ((m = r.match(/class below floor \(([\d.]+) < ([\d.]+)\)/)))
     return `the best ${it.cls} match (${(+m[1]).toFixed(2)}) is under the ${it.cls} floor of ${(+m[2]).toFixed(2)}`;
+  if ((m = r.match(/below class floor \(([\d.]+) < ([\d.]+)\)/)))
+    return `not close enough to the question (${(+m[1]).toFixed(2)} under the ${it.cls} floor of ${(+m[2]).toFixed(2)})`;
   if (/below class margin/.test(r)) return `too far below the strongest ${it.cls} match to be worth the space`;
   if (/tool result needed the budget/.test(r)) return "pushed out to make room for a tool result";
   if (/no budget left/.test(r)) return "no room left in the context window";
@@ -574,17 +576,19 @@ function reason(it) {
 }
 
 function gateRow(it, admitted) {
-  const pct = clamp(it.score, 0, 1) * 100;
+  // The bar shows what the floor is compared against: semantic similarity.
+  const sim = it.sim ?? it.score;
+  const pct = clamp(sim, 0, 1) * 100;
   const floor = clamp(it.floor, 0, 1) * 100;
   return h("div", { class: `gate-row ${admitted ? "in" : "out"} cls-${it.cls}` },
     h("span", { class: "gdot" }),
     h("div", { style: "min-width:0" },
       h("div", { class: "gate-title" }, it.private ? icon("lock", "xs") : null, h("span", { text: it.title, title: it.title })),
-      h("div", { class: "score", title: `score ${it.score.toFixed(2)} · ${it.cls} floor ${it.floor.toFixed(2)}` },
+      h("div", { class: "score", title: `similarity ${sim.toFixed(2)} · ${it.cls} floor ${it.floor.toFixed(2)} · ranked ${it.score.toFixed(2)}` },
         h("div", { class: "score-fill", style: `width:${pct}%` }),
         h("div", { class: "score-floor", style: `left:${floor}%` })),
       admitted ? null : h("div", { class: "gate-why", text: reason(it) })),
-    h("span", { class: "gate-score", text: it.score.toFixed(2) }));
+    h("span", { class: "gate-score", text: sim.toFixed(2) }));
 }
 
 function renderLedger(L) {

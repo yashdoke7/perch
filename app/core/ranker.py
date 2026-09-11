@@ -21,16 +21,26 @@ separate files makes it hard to accidentally conflate them later.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
+from collections import Counter
 
 from ..memory import classes
 from ..memory.schema import MemoryItem, Scored
 
 _WORD = re.compile(r"[a-z0-9']+")
 
-W_SIM = 0.62
-W_TAG = 0.20
-W_ENT = 0.10
+# Relevance signals. They sum to 1, so a candidate that matches on nothing
+# scores 0 -- not a floor-sized constant.
+W_SIM = 0.67
+W_TAG = 0.22
+W_ENT = 0.11
+
+# Recency and use MODULATE relevance; they do not add to it. As an additive
+# term (the first version) every memory, however unrelated, collected a free
+# 0.08 -- and an identity item with zero similarity cleared the identity floor
+# on "what is the capital of France?". A memory cannot become relevant by
+# being recent. Measured on the E3 persona benchmark, 10 Sept 2026.
 W_REC = 0.08
 
 HALF_LIFE_DAYS = 120.0
@@ -51,24 +61,36 @@ def _recency(item: MemoryItem) -> float:
     return min(1.0, decay + use_bonus)
 
 
+def _idf(sets: list[set[str]]) -> dict[str, float]:
+    """Weight of each tag or entity WITHIN THIS CANDIDATE SET, in (0, 1].
+
+    A tag every candidate carries says nothing about which one the question
+    wants. Unweighted, the project tag "tidewatch" -- on 10 of 14 project items
+    -- lifted all ten on any Tidewatch question, and "who works on Tidewatch?"
+    admitted eleven memories to answer with one.
+    """
+    n = len(sets)
+    df = Counter(v for s in sets for v in s)
+    return {v: math.log(1 + n / c) / math.log(1 + n) for v, c in df.items()}
+
+
 def rank(candidates: list[tuple[MemoryItem, float]], question: str,
          selection: str = "") -> list[Scored]:
     query_words = _words(question) | _words(selection[:1500])
+    tag_sets = [{t.lower() for t in item.tags} for item, _ in candidates]
+    ent_sets = [{e.lower() for e in item.entities} for item, _ in candidates]
+    tag_w, ent_w = _idf(tag_sets), _idf(ent_sets)
 
     out: list[Scored] = []
-    for item, similarity in candidates:
-        tags = {t.lower() for t in item.tags}
-        tag_overlap = len(tags & query_words) / len(tags) if tags else 0.0
-
-        entities = {e.lower() for e in item.entities}
-        entity_hit = 1.0 if entities & query_words else 0.0
+    for (item, similarity), tags, entities in zip(candidates, tag_sets, ent_sets):
+        tag_overlap = (sum(tag_w[t] for t in tags & query_words) / len(tags)
+                       if tags else 0.0)
+        entity_hit = max((ent_w[e] for e in entities & query_words), default=0.0)
 
         recency = _recency(item)
 
-        base = (W_SIM * similarity
-                + W_TAG * tag_overlap
-                + W_ENT * entity_hit
-                + W_REC * recency)
+        relevance = W_SIM * similarity + W_TAG * tag_overlap + W_ENT * entity_hit
+        base = relevance * (1.0 - W_REC + W_REC * recency)
 
         score = base * classes.prior_for(item.cls)
 

@@ -100,12 +100,31 @@ Ask it a medical question and watch what each configuration does:
 
 ```
                 leaked items     useful context kept
-  A naive                8            3 / 3
-  B global tau           0            2 / 3
+  A naive                8            2 / 3
+  B global tau           0            1 / 3
   C ours                 0            3 / 3
 ```
 
-✅ **Measured, not claimed** — reproduced on `nomic-embed-text` over the deduplicated seed, 7 Sept 2026.
+✅ **Measured, not claimed** — `nomic-embed-text` over the deduplicated seed, 10 Sept 2026, with the
+floors fitted by E3 (below) and the rewrite asked about a selection, as the panel always asks it.
+
+## ★ Then the retrieval benchmark — `python -m app eval e3`
+
+Five questions prove the mechanism; they cannot measure it. E3 uses two fictional people: floors are
+**fitted** on one (68 memories, 112 labelled questions) and **scored** on the other (42 memories, 69
+questions), which is never used for fitting:
+
+```
+held-out persona          recall   precision    F1   abstains   private leaks
+  A naive top-4             0.95      0.33     0.49     0.00          24
+  B one global threshold    0.73      0.86     0.79     0.92           0
+  C PERCH                   0.84      0.88     0.86     1.00           0
+```
+
+Its first run had shipped PERCH **losing** to the global threshold; the five retrieval defects it found,
+and the one "fix" it rejected, are in architecture §10.1. Labels are ours — directional, not a
+published benchmark. It also checks the memory lifecycle end to end: write, recall, merge a
+near-duplicate, edit, rebuild from files, forget.
 
 > **This table needs a real embedder, and the command refuses to print one without it.** On the
 > hashed fallback the ablation *inverts*: config C abstains on every query and scores 0/3, because a
@@ -173,7 +192,7 @@ app/
   eval/       harness · E1 probe · E2 budget · E4 gate · E5 privacy · E6 latency
   ui/         shell · bridge · web/                               the app: window, tray, API, HTML UI
   settings    what the Settings screen changes, as plain JSON
-tests/        136 tests, no model or network required
+tests/        144 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 

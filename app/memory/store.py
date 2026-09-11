@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS items (
     path      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS items_class ON items(class);
+CREATE TABLE IF NOT EXISTS meta (
+    key       TEXT PRIMARY KEY,
+    value     TEXT NOT NULL
+);
 """
 
 
@@ -60,6 +64,31 @@ class MemoryStore:
         self._lock = threading.RLock()
         with self._lock:
             self.db.executescript(SCHEMA)
+            self.db.commit()
+        self._check_embedder()
+
+    def _check_embedder(self) -> None:
+        """Re-embed everything when the index was built by a different
+        embedder, model or scheme.
+
+        index_health() catches a different BACKEND, because the vector length
+        changes. It cannot catch a different MODEL of the same length -- two
+        768-dimension embedders compare happily and mean different things. So
+        the index records what built it, and a mismatch rebuilds from the
+        Markdown files, which are the truth.
+        """
+        live = embed.signature()
+        with self._lock:
+            row = self.db.execute("SELECT value FROM meta WHERE key='embedder'").fetchone()
+            n = self.db.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+        if row and row[0] == live:
+            return
+        if n:
+            print(f"[memory] re-embedding {n} items: the index was built by "
+                  f"{row[0] if row else 'an older PERCH'}, the live embedder is {live}")
+            self.rebuild()
+        with self._lock:
+            self.db.execute("INSERT OR REPLACE INTO meta VALUES ('embedder', ?)", (live,))
             self.db.commit()
 
     # ------------------------------------------------------------------ write

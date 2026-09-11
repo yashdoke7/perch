@@ -508,13 +508,14 @@ with deliberate over-fetch (N ≈ 30), because the ranker and the gate need cand
 
 ```
    for each eligible class c:
-       s_max(c) = score of the best candidate in c
+       sim_max(c) = best SEMANTIC similarity in c     (calibrated cosine)
+       s_max(c)   = best RANKED score in c            (similarity + tags + entities, × recency, × prior)
 
-       if s_max(c) < τ_c :
+       if sim_max(c) < τ_c :
             class c contributes NOTHING            ← not "the best of a bad lot"
        else:
-            admit items where  s ≥ τ_c   AND   s ≥ α · s_max(c)
-                                └ absolute floor    └ margin test, kills the long tail
+            admit items where  sim ≥ τ_c   AND   s ≥ α · s_max(c)
+                                └ absolute floor      └ margin test, kills the long tail
 
    if no class is admitted:
        ABSTAIN — answer from general knowledge, and say so in the panel
@@ -527,6 +528,17 @@ with deliberate over-fetch (N ≈ 30), because the ranker and the gate need cand
   should be admitted easily, so τ is low.
 - **α — the margin.** Even inside an admitted class, an item scoring far below that class's best is
   filler. Filler is what burns budget and causes the 2× memory-attention distortion OP-Bench measured.
+
+> ★ **Corrected by measurement (E3, 10 Sept 2026): the floor is on similarity, the margin is on the
+> ranked score.** The first version floored the *ranked* score, which folds in tag overlap. Floors
+> fitted on a labelled persona then quietly came to require a **tag match** — and refused the seed's
+> own async-bug note on *"why does the panel freeze?"*, a strong semantic match with no shared tag
+> words. *Is this memory about the question at all?* is the embedder's question; tags, entities and
+> recency decide **order** among the memories that are. As a side effect a ranker change no longer
+> moves every floor. **One rule-based exception:** on a pure rewrite of a selection, identity items
+> tagged as *voice* (how to write, not who you are) are admitted whatever their score — *"make this
+> shorter"* is never semantically close to *"how I want answers written"*, and §4.5 already calls
+> identity *small, always*. The reason string says which rule admitted it.
 
 **Your medical example, traced:**
 
@@ -843,7 +855,7 @@ item is forced local automatically** — with the panel saying why.
 | **2** | **Import**: export parsers, class-typed extraction, CLI review triage | **done — 15 tests** |
 | **3** | **Execution**: live budget ledger (tool results evict memory), registry, route choice in panel + CLI, private mode | **done — 14 tests** |
 | **4** | Screenshots reach the model (vision, with honest refusal when unsupported); multi-turn follow-ups; **on-device OCR** (Windows.Media.Ocr) so a text-only model can read a screenshot; **the app**: WebView2 shell with tray, single instance, frozen-frame region picker, compact panel + full view (Ask, Conversations, Memory editor with gate preview, Import review, Evaluate, Settings), saved conversations | **done — 32 tests** |
-| **5** | **Evaluation harness**: E2, E4, E5, E6 runnable offline; E1 as a PERCH-written OP-style probe (OP-Bench data is unreleased); E3/E7 reported as unrun with reasons | **partial — 18 tests.** E2/E4/E5/E6 verified against a live Ollama. E1 ran (10 Sept 2026, qwen2.5:3b, qwen2.5:7b judge): **inconclusive** — naive top-k over-personalised on 1 of 10 probes, gated on 0, too few to separate them; the probe needs harder cases. E3 needs a dataset, E7 needs a human |
+| **5** | **Evaluation harness**: E2, E4, E5, E6; E1 as a PERCH-written OP-style probe (OP-Bench data is unreleased); **E3 as a two-persona retrieval benchmark with fitted, held-out-tested floors**; E7 reported as unrun | **partial — 26 tests.** Six of seven run against a live Ollama. **E3 supports C2 on the held-out persona** (F1 0.86 vs 0.79, 0 private leaks) after five retrieval defects it found were fixed. E1 **inconclusive** — the probe needs harder cases. E7 needs a human |
 | 6 | Tauri port, installer, docs, release | |
 
 ## 9.3 Team split (5)
@@ -872,12 +884,14 @@ item is forced local automatically** — with the panel saying why.
 
 ## 10.1 ★ What actually runs — `python -m app eval`
 
-**Four of the seven run on any machine with this repository and nothing else. Three do not.**
+**Six of the seven run on this machine; E7 needs a human.** E1 and E3 are PERCH-written stand-ins for
+benchmarks that are unreleased (OP-Bench) or not vendored (LongMemEval, LoCoMo), and say so in every
+report.
 
 ```
-E1  over-personalisation     needs OP-Bench             NOT RUNNABLE HERE
+E1  over-personalisation     OP-style probe, 24 q       runs with a local model + judge
 E2  budget assembly (C1)     needs nothing              ★ runs
-E3  retrieval quality        needs LongMemEval/LoCoMo   NOT RUNNABLE HERE
+E3  retrieval quality        two labelled personas      runs when a real embedder is live
 E4  admission gate (C2)      needs a real embedder      runs when one is live
 E5  privacy: zero egress     needs nothing              ★ runs
 E6  latency                  stages: nothing            ★ runs (generation half needs a model)
@@ -931,6 +945,59 @@ functionality"* when the transcript had the user moving away from it, and that a
 > **A 3B extractor invents outcomes.** That is not a reason to abandon the import path — it is the
 > reason §3.4 rule 2 exists. Nothing reaches memory without a human reading it, and the review screen
 > now says so on the way in.
+
+### ★ E3 — retrieval at a realistic size, and what it changed (10 Sept 2026)
+
+Every earlier retrieval number came from **9 seed memories and 5 questions**. E3 replaces that with two
+fictional people: a **development** persona (68 memories, 112 labelled questions) on which the floors
+and margin are **fitted by 5-fold cross-validation**, and a **held-out** persona (42 memories, 69
+questions) that is **never used for fitting — only scored**. Each question lists what a good answer
+needs and what would be acceptable context; seven kinds, including paraphrases with no shared keywords,
+cross-class requests, general-knowledge questions and in-domain *baits* (a cardiology question when only
+a pulmonologist is stored).
+
+**Held-out persona, final configuration:**
+
+| | recall | precision | F1 | abstains correctly | private leaks |
+|---|---|---|---|---|---|
+| A naive top-4 | 0.95 | 0.33 | 0.49 | 0.00 | **24** |
+| B one global threshold | 0.73 | 0.86 | 0.79 | 0.92 | 0 |
+| **C PERCH** | **0.84** | **0.88** | **0.86** | **1.00** | **0** |
+
+**The first run said the opposite.** Before the fixes below, shipped PERCH *lost* to a single global
+threshold on the development persona (F1 0.62 vs 0.67, abstention 0.79 vs 0.95). Five defects, each
+now fixed and tested:
+
+| Found | Fix |
+|---|---|
+| **Recency was added, not multiplied** — every memory collected a free 0.08, so an identity note with zero similarity cleared the identity floor on *"capital of France"* | recency and use now *modulate* relevance; zero similarity scores zero |
+| **A shared project tag lifted the whole project** — *"who works on Tidewatch?"* admitted 11 memories to answer with 1 | tags and entities weighted by rarity within the candidate set |
+| **Floors were on the ranked score**, so fitted floors required tag matches (§4.4 note) | floor on similarity, margin on the ranked score |
+| **The router missed inflections** — *"make this shorter"*, *"more formally"* were not rewrites | prefix stems for the rewrite vocabulary |
+| **Voice memory was gated on similarity**, which a rewrite never has | voice-tagged identity admitted by rule on rewrites |
+
+**Tried and rejected:** `nomic-embed-text`'s documented task prefixes (`search_query:` /
+`search_document:`). Measured, they *lowered* separation of relevant from unrelated pairs (AUC 0.976 →
+0.971 dev, 0.990 → 0.984 held-out), so they are not used. The index now records which embedder built
+it and re-embeds on a mismatch, so a future scheme or model change cannot silently mix vectors.
+
+**The fitted floors overturned one design belief.** Health and Personal were hand-set *highest*
+(0.42, 0.38) to stop leaks. The fit put them at 0.28 and 0.32 and the held-out persona still records
+**zero** private leaks: leaks are stopped by routing and the margin, and the high floor had only been
+dropping real answers (*"what triggers my migraines?"* drew nothing).
+
+**What E3 does not show.** The labels are ours, and one author wrote both personas — directional, not a
+published number. Paraphrase recall is embedder-bound (held-out paraphrase F1 0.82, the weakest kind
+after cross-class). The project floor is the least stable across folds. And a benchmark this size can
+still flatter a method tuned near it; the held-out split is the guard, not a guarantee.
+
+### E6, re-measured after the E3 changes
+
+Median retrieval latency moved from 18–33 ms (morning) to 39–50 ms (evening) on the same machine.
+Split with a timer around the embedding call: **PERCH's own route + rank + gate costs 3.9 ms**; the
+remaining ~35–39 ms is one Ollama embedding round-trip, which itself had slowed (a bare call measured
+34.7 ms). The ranker and gate changes are not what moved — the embedder's latency depends on what else
+the GPU is holding, and E6 should always be reported with that split.
 
 ### E5 is a necessary condition, not the packet capture
 
@@ -1011,9 +1078,11 @@ the system fell back without saying so.
    representational, not a tuning problem. **The fallback is a stand-in for demonstrating the pipeline,
    never for reporting a number.**
 
-> **Where this goes next:** floors should be *fitted* on held-out labelled data per class, not chosen.
-> That turns E4 from an ablation into a calibration result, and it is the most defensible answer to
-> "did you just pick these numbers?" — because the honest current answer is *yes, guided by measurement*.
+> **Done (E3, 10 Sept 2026): the floors are now fitted, not chosen.** Six floors and the margin are fitted
+> by coordinate descent on a labelled development persona, cross-validated, and scored unchanged on a
+> held-out persona: F1 0.86 against 0.79 for the best baseline, zero private leaks. The answer to *"did
+> you just pick these numbers?"* is now *no — and here is the split they were fitted and tested on*.
+> The limit that remains is the labels: we wrote them.
 
 ### 7. ⚠️ "Switching embedding backends silently deleted half the memory."
 

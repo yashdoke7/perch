@@ -69,8 +69,27 @@ class Admission:
         return lines
 
 
+# Identity items that say HOW to write rather than WHO you are.
+VOICE_TAGS = frozenset({"voice", "style", "tone", "spelling", "writing", "format"})
+
+
+def is_voice(s: Scored) -> bool:
+    return s.item.cls == "identity" and bool(VOICE_TAGS & {t.lower() for t in s.item.tags})
+
+
 def admit(ranked: list[Scored], alpha: float | None = None,
-          max_items: int | None = None) -> Admission:
+          max_items: int | None = None,
+          floors: dict[str, float] | None = None,
+          voice_always: bool = False) -> Admission:
+    """`floors` overrides the per-class floors -- used by E3 to fit them on
+    labelled data rather than choose them (self-critique §6).
+
+    `voice_always` is set for a pure rewrite of a selection. "Make this
+    shorter" is never semantically close to "how I want answers written", so
+    a similarity floor would always drop the one memory a rewrite needs. Voice
+    memory is an instruction, not a fact, and §4.5's fill order already calls
+    identity "small, always" -- so for rewrites it is admitted by rule, and
+    the reason says so."""
     alpha = config.MARGIN_ALPHA if alpha is None else alpha
     max_items = config.MAX_ITEMS if max_items is None else max_items
 
@@ -84,19 +103,29 @@ def admit(ranked: list[Scored], alpha: float | None = None,
         by_class.setdefault(s.item.cls, []).append(s)
 
     for cls_name, group in by_class.items():
-        floor = classes.floor_for(cls_name)
+        floor = floors[cls_name] if floors and cls_name in floors else classes.floor_for(cls_name)
+        best_sim = max(s.similarity for s in group)
         best = max(s.score for s in group)
 
         # --- the absolute floor -------------------------------------------
         # The whole point. A class whose BEST candidate is weak contributes
         # nothing -- we do not fall back to "the best of a bad lot".
-        if best < floor:
+        #
+        # The floor is on SEMANTIC SIMILARITY, not on the ranked score. The
+        # first version floored the ranked score, which folds in tag overlap,
+        # entity hits, recency and the class prior -- so a floor fitted on one
+        # set of memories quietly came to require a TAG MATCH, and the seed's
+        # own async-bug note (a strong semantic match, no shared tag words)
+        # was refused. "Is this about the question at all?" is a question for
+        # the embedder; tags and recency only decide ORDER among the memories
+        # that are. It also means a ranker change no longer moves every floor.
+        if best_sim < floor:
             result.classes_rejected[cls_name] = (
-                f"best candidate {best:.3f} < floor {floor:.2f} - contributes nothing"
+                f"best candidate {best_sim:.3f} < floor {floor:.2f} - contributes nothing"
             )
             for s in group:
                 s.admitted = False
-                s.reason = f"class below floor ({best:.3f} < {floor:.2f})"
+                s.reason = f"class below floor ({best_sim:.3f} < {floor:.2f})"
                 result.dropped.append(s)
             continue
 
@@ -105,17 +134,32 @@ def admit(ranked: list[Scored], alpha: float | None = None,
         # --- the margin test ----------------------------------------------
         # Inside an admitted class, an item far below that class's best is
         # filler. Filler burns budget and drives the 2x memory-over-query
-        # attention distortion OP-Bench measured.
-        cutoff = max(floor, alpha * best)
+        # attention distortion OP-Bench measured. The margin is on the ranked
+        # score, because that is where tags and entities earn their keep.
+        margin = alpha * best
         for s in group:
-            if s.score >= cutoff:
+            if s.similarity < floor:
+                s.admitted = False
+                s.reason = f"below class floor ({s.similarity:.3f} < {floor:.2f})"
+                result.dropped.append(s)
+            elif s.score >= margin:
                 s.admitted = True
-                s.reason = f"score {s.score:.3f} >= cutoff {cutoff:.3f}"
+                s.reason = f"similarity {s.similarity:.3f} >= floor {floor:.2f}, score {s.score:.3f} >= margin {margin:.3f}"
                 result.admitted.append(s)
             else:
                 s.admitted = False
-                s.reason = f"below class margin ({s.score:.3f} < {cutoff:.3f})"
+                s.reason = f"below class margin ({s.score:.3f} < {margin:.3f})"
                 result.dropped.append(s)
+
+    if voice_always:
+        for s in [d for d in result.dropped if is_voice(d)]:
+            result.dropped.remove(s)
+            s.admitted = True
+            s.reason = "voice memory -- applied to every rewrite, whatever its score"
+            result.admitted.append(s)
+            if "identity" not in result.classes_admitted:
+                result.classes_admitted.append("identity")
+                result.classes_rejected.pop("identity", None)
 
     result.admitted.sort(key=lambda s: -s.score)
 

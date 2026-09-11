@@ -64,6 +64,21 @@ def _probe() -> str:
     return "hashed"
 
 
+def signature() -> str:
+    """What produced the vectors: backend and model. Two vectors are only
+    comparable if their signatures match -- and two models can share a vector
+    length, so the length alone cannot say (store._check_embedder).
+
+    nomic-embed-text's task prefixes ("search_query: " / "search_document: ")
+    were tried and measured on E3's two personas: they LOWERED separation of
+    relevant from unrelated pairs (AUC 0.976 -> 0.971 and 0.990 -> 0.984), so
+    they are not used. If a prefix scheme is ever adopted, add it here so the
+    index re-embeds rather than mixing schemes."""
+    kind = backend()
+    model = {"ollama": config.EMBED_MODEL, "api": "text-embedding-3-small"}.get(kind, f"hashed{DIM}")
+    return f"{kind}:{model}"
+
+
 def embed(text: str) -> list[float]:
     kind = backend()
     if kind == "ollama":

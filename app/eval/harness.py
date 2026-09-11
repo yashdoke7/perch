@@ -95,11 +95,12 @@ def e7_uia_coverage() -> Result:
 def all_experiments() -> dict:
     """Name -> zero-argument callable. Imported lazily so that one experiment
     failing to import cannot take the whole harness down with it."""
-    from . import e1_overpersonalisation, e2_budget, e4_admission, e5_privacy, e6_latency
+    from . import (e1_overpersonalisation, e2_budget, e3_local, e4_admission, e5_privacy,
+                   e6_latency)
     return {
         "e1": e1_overpersonalisation.run,
         "e2": e2_budget.run,
-        "e3": e3_retrieval_quality,
+        "e3": e3_local.run,
         "e4": e4_admission.run,
         "e5": e5_privacy.run,
         "e6": e6_latency.run,
