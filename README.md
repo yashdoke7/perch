@@ -4,7 +4,53 @@
 
 Dormant in the background. Summoned by a selection, a screenshot or a shortcut, anywhere in Windows.
 It answers in a slim panel beside your work, it edits in place in the application you were already in,
-and it knows who you are — because the memory is **yours**, not a vendor's.
+and it knows who you are — because the memory is **yours**, not a vendor's: plain Markdown files on
+your own disk, six typed classes, and a gate that explains every admission and every refusal.
+
+[![Tests](https://img.shields.io/badge/tests-149%20passing-2e8b57)](tests/test_pipeline.py)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)](docs/DEPLOYMENT.md)
+[![Python](https://img.shields.io/badge/python-3.11-3776ab)](requirements.txt)
+[![License](https://img.shields.io/badge/status-personal%20project-lightgrey)](#)
+
+**At a glance**
+
+- 🧠 **Six typed memory classes** (identity, project, academic, career, health, personal), each with its own privacy default and admission floor — not one flat vector store
+- 🚪 **A declarative admission gate**: *ranking is relative, injection is absolute.* A class whose best match doesn't clear its floor contributes nothing, and PERCH says so rather than guessing
+- 🔒 **Private by class, not by promise.** A Health or Personal memory forces the request to run on a local model, enforced in code, checked by an evaluation (E5)
+- 🪟 **Lives in the OS**, not a browser tab — a selection, a screenshot, or a shortcut summons it beside whatever you're doing, anywhere in Windows
+- 📊 **Evaluates its own claims** — seven experiments, runnable from the app, that say plainly when something didn't run rather than leaving a gap the reader fills in optimistically
+- 📁 **Memory is files you own** — Markdown with YAML frontmatter, one fact per file, in a folder you can read, edit, `git init`, or delete
+
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="PERCH Home screen — setup checklist, memory overview, evaluation evidence" width="800">
+</p>
+
+---
+
+## Screenshots
+
+<table>
+<tr>
+<td width="38%" valign="top">
+<img src="docs/screenshots/panel-compact.png" alt="Compact panel, summoned beside a browser window">
+<br><sub><b>Summoned beside your work.</b> A shortcut opens a slim panel next to whatever app you're in.</sub>
+</td>
+<td width="62%" valign="top">
+<img src="docs/screenshots/ask-why.png" alt="Full view: a conversation with the Why-this-answer panel open">
+<br><sub><b>Every answer explains itself.</b> The right rail shows what was retrieved, what cleared its class's floor, what didn't, and why — live, not mocked.</sub>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<img src="docs/screenshots/memory.png" alt="Memory screen: typed classes, tags, and the gate preview">
+<br><sub><b>Memory you can read.</b> One Markdown file per fact, organised by class, editable in place.</sub>
+</td>
+<td valign="top">
+<img src="docs/screenshots/evaluate.png" alt="Evaluate screen: E1–E7 experiments with real verdicts">
+<br><sub><b>Evidence, not marketing.</b> Seven evaluations run from the app itself; each says plainly whether it ran and what it found.</sub>
+</td>
+</tr>
+</table>
 
 ---
 
@@ -199,10 +245,10 @@ app/
   models/     registry · client                                   local first, always
   tools/      web · files · docs · python · memory · ocr          the agent surface
   ingest/     exports · extract · review · prompts               ChatGPT / Claude / Gemini
-  eval/       harness · E1 probe · E2 budget · E4 gate · E5 privacy · E6 latency
+  eval/       harness · E1 probe · E2 budget · E3 retrieval · E4 gate · E5 privacy · E6 latency
   ui/         shell · bridge · web/                               the app: window, tray, API, HTML UI
   settings    what the Settings screen changes, as plain JSON
-tests/        144 tests, no model or network required
+tests/        149 tests, no model or network required
 docs/         architecture · OS primer · references · deck
 ```
 
